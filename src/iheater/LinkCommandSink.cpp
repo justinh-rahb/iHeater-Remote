@@ -38,22 +38,22 @@ void LinkCommandSink::sendCommand(const DryerUart::CommandPayload& payload, bool
     }
 
     case CC::Find:
-        HAL_LOG_INFO("LINKSINK", "Find: not implemented (no LED on LinkII)");
+        HAL_LOG_INFO("LINKSINK", "Find: not implemented (no LED on IHeaterLink)");
         break;
 
     case CC::GetConfig:
     case CC::SetConfig:
-        HAL_LOG_INFO("LINKSINK", "Config cmd 0x%02X: not implemented on LinkII yet",
+        HAL_LOG_INFO("LINKSINK", "Config cmd 0x%02X: not implemented on IHeaterLink yet",
                      static_cast<unsigned>(payload.command));
         break;
 
     case CC::ReadRfid:
     case CC::WriteRfid:
-        HAL_LOG_DEBUG("LINKSINK", "RFID cmd: not applicable on LinkII");
+        HAL_LOG_DEBUG("LINKSINK", "RFID cmd: not applicable on IHeaterLink");
         break;
 
     default:
-        HAL_LOG_DEBUG("LINKSINK", "Cmd 0x%02X: not applicable on LinkII",
+        HAL_LOG_DEBUG("LINKSINK", "Cmd 0x%02X: not applicable on IHeaterLink",
                       static_cast<unsigned>(payload.command));
         break;
     }
@@ -62,14 +62,14 @@ void LinkCommandSink::sendCommand(const DryerUart::CommandPayload& payload, bool
 void LinkCommandSink::sendProfileCommand(const DryerUart::ProfilePayload& /*payload*/,
                                          bool /*ackRequired*/)
 {
-    HAL_LOG_DEBUG("LINKSINK", "Profile cmd: not applicable on LinkII");
+    HAL_LOG_DEBUG("LINKSINK", "Profile cmd: not applicable on IHeaterLink");
 }
 
 void LinkCommandSink::sendConfigPushChunk(const DryerUart::ConfigChunkPayload& /*payload*/,
                                           uint8_t /*dataLen*/,
                                           uint8_t /*flags*/)
 {
-    HAL_LOG_DEBUG("LINKSINK", "Config push chunk: not applicable on LinkII");
+    HAL_LOG_DEBUG("LINKSINK", "Config push chunk: not applicable on IHeaterLink");
 }
 
 } // namespace iheaterlink

@@ -100,9 +100,9 @@ namespace iheaterlink
             integrations_.setHaClientId(mac);
         }
 
-        // Тип устройства — LinkII (специализированный LINK для iHeater).
+        // Тип устройства — iHeater Link (ESP32-мост к STM32 iHeater).
         // Влияет на режим Bambu (Reader) внутри менеджера.
-        integrations_.setDeviceType(DeviceType::LinkII);
+        integrations_.setDeviceType(DeviceType::IHeaterLink);
 
         // Колбэки из менеджера → локальное применение на pulse output.
         integrations_.setVirtualChamberCallback(
@@ -243,7 +243,7 @@ namespace iheaterlink
         char mcuSerial[24] = {0};
         readEspMacSerial(mcuSerial, sizeof(mcuSerial));
 
-        const uint8_t deviceType = static_cast<uint8_t>(DeviceType::LinkII);
+        const uint8_t deviceType = static_cast<uint8_t>(DeviceType::IHeaterLink);
 
         if (publisher_.publishInfo(1, units, hwVersion, fwVersion,
                                    workTimeCounter, mcuSerial, deviceType))
@@ -269,7 +269,7 @@ namespace iheaterlink
             return;
 
         StaticJsonDocument<512> doc;
-        doc["deviceType"] = "link_ii";
+        doc["deviceType"] = "iheater_link";
         doc["active"] = cloud::activeIntegrationToString(integrations_.getActive());
 
         // Moonraker snapshot
