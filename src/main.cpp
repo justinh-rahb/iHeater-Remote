@@ -203,6 +203,14 @@ void setup()
         wifiManager.begin(savedSSID.c_str(), savedPassword.c_str());
         wifiConfigured = true;
     }
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+    else
+    {
+        wifiManager.begin(WIFI_SSID, WIFI_PASSWORD);
+        saveWiFiCredentials(WIFI_SSID, WIFI_PASSWORD);
+        wifiConfigured = true;
+    }
+#endif
 
     device.begin();
     device.setClaimPinCallback(onWebClaimPin);
