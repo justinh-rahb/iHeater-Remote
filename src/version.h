@@ -1,18 +1,14 @@
 #pragma once
 
-// СИНХРОНИЗИРОВАНО с MCU: iDryerRP2040/src/version.h
-// copy_menu.py копирует version.h MCU в lib/idryer-menu/src/ перед сборкой
-// VERSION_MAJOR берётся из MCU, MINOR и PATCH - индивидуальны для LINK
+// VERSION_MAJOR при желании может быть взят из lib/idryer-menu/src/version.h,
+// если такой файл присутствует в кэше menu. Иначе используется локальный fallback.
+// VERSION_MINOR и VERSION_PATCH задаются на стороне LINK.
 
 #include <Arduino.h>
 
-// Включаем version.h из MCU для получения VERSION_MAJOR
-// (файл копируется автоматически при сборке)
+// Если в menu cache есть version.h, используем его для VERSION_MAJOR
 #if __has_include("../lib/idryer-menu/src/version.h")
-// Временно сохраняем макросы из MCU
 #include "../lib/idryer-menu/src/version.h"
-// VERSION_MAJOR взят из MCU
-// Переопределяем MINOR и PATCH для LINK
 #undef VERSION_MINOR
 #undef VERSION_PATCH
 #undef VERSION_STR

@@ -1,9 +1,9 @@
 """
-Pre-build script: копирует menu файлы из RP2040 проекта в lib/idryer-menu
+Pre-build script: копирует рабочие menu файлы из menu/ в lib/idryer-menu
 
 Логика:
-1. Симлинк есть, файлы есть → копируем в lib/idryer-menu/
-2. Симлинка нет, но в lib есть → используем что есть (warning)
+1. В menu/ есть рабочие файлы → копируем в lib/idryer-menu/
+2. В menu/ нет файлов, но в lib есть кэш → используем что есть (warning)
 3. Нигде нет → ошибка сборки
 """
 
@@ -15,9 +15,8 @@ Import("env")
 
 # Пути
 PROJECT_DIR = Path(env["PROJECT_DIR"])
-SOURCE_DIR = PROJECT_DIR / "config-exmple" / "menu"
+SOURCE_DIR = PROJECT_DIR / "menu"
 DEST_DIR = PROJECT_DIR / "lib" / "idryer-menu" / "src"
-VERSION_DEST = DEST_DIR / "version.h"
 
 # Файлы для копирования (только нужные для LINK)
 MENU_FILES = [
@@ -33,15 +32,8 @@ def copy_menu_files():
     source_exists = SOURCE_DIR.exists() and SOURCE_DIR.is_dir()
     dest_exists = DEST_DIR.exists() and any(DEST_DIR.glob("*.cpp"))
 
-    # Проверяем что симлинк рабочий (указывает на существующую папку)
-    if SOURCE_DIR.is_symlink():
-        target = SOURCE_DIR.resolve()
-        if not target.exists():
-            source_exists = False
-            print(f"  [WARNING] Симлинк {SOURCE_DIR} указывает на несуществующую папку: {target}")
-
     if source_exists:
-        # Копируем из симлинка
+        # Копируем из рабочего каталога menu/
         DEST_DIR.mkdir(parents=True, exist_ok=True)
 
         copied = 0
@@ -61,17 +53,6 @@ def copy_menu_files():
         if copied == 0:
             print("  [MENU] Files up to date")
 
-        # Копируем version.h из MCU в lib/idryer-menu/src/
-        # Если SOURCE_DIR это симлинк, берем реальный путь
-        real_source = SOURCE_DIR.resolve() if SOURCE_DIR.is_symlink() else SOURCE_DIR
-        version_src = real_source.parent / "version.h"
-        if version_src.exists():
-            if not VERSION_DEST.exists() or version_src.stat().st_mtime > VERSION_DEST.stat().st_mtime:
-                shutil.copy2(version_src, VERSION_DEST)
-                print(f"  [VERSION] Copied MCU version.h to lib/idryer-menu/src/")
-            else:
-                print("  [VERSION] MCU version.h up to date")
-
         # Создаём library.json если нет
         lib_json = DEST_DIR.parent / "library.json"
         if not lib_json.exists():
@@ -87,21 +68,21 @@ def copy_menu_files():
 
     elif dest_exists:
         # Используем кэшированные файлы
-        print("  [MENU] Using cached files (source symlink not available)")
+        print("  [MENU] Using cached files (menu source not available)")
 
     else:
         # Нигде нет — ошибка
         print("\n" + "="*60)
         print("ERROR: Menu files not found!")
         print("="*60)
-        print(f"Source (symlink): {SOURCE_DIR}")
+        print(f"Source:           {SOURCE_DIR}")
         print(f"Destination:      {DEST_DIR}")
         print("")
         print("Solutions:")
-        print("1. Create symlink to RP2040 project:")
-        print(f"   ln -s /path/to/iDryerRP2040/src/menu {SOURCE_DIR}")
+        print("1. Add generated menu files to:")
+        print(f"   {SOURCE_DIR}")
         print("")
-        print("2. Or copy menu files manually to:")
+        print("2. Or copy menu files manually to cache:")
         print(f"   {DEST_DIR}")
         print("="*60 + "\n")
         env.Exit(1)

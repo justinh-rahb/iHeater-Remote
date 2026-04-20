@@ -1,0 +1,165 @@
+# ===========================================
+# iHeater Link menu
+# Source of truth for generated menu files.
+# IMPORTANT:
+# - units_count must stay second from the end
+# - language must stay last
+# ===========================================
+
+- id: root
+  type: submenu
+  title: { ru: "IHEATER LINK", en: "IHEATER LINK" }
+  children:
+    - id: portal
+      type: submenu
+      title: { ru: "ПОРТАЛ", en: "PORTAL" }
+      children:
+        - id: start_claim
+          type: action
+          title: { ru: "СВЯЗАТЬ", en: "CLAIM" }
+          on_invoke: start_claim
+
+    - id: bambu
+      type: submenu
+      title: { ru: "BAMBU", en: "BAMBU" }
+      children:
+        - id: iheater_link_enabled
+          type: toggle
+          title: { ru: "АВТО НАГРЕВ", en: "AUTO HEAT" }
+          vtype: bool
+          bind: iheater_link_enabled
+          persist: true
+          scope: global
+          default: true
+
+        - id: iheater_link_materials
+          type: submenu
+          title: { ru: "МАТЕРИАЛЫ", en: "MATERIALS" }
+          children:
+            - id: iheater_link_pla_temp
+              type: value
+              title: { ru: "PLA", en: "PLA" }
+              unit: { ru: "°C", en: "°C" }
+              vtype: float
+              min: 30
+              max: 90
+              step: 1
+              bind: iheater_link_pla_temp
+              persist: true
+              scope: global
+              default: 45.0
+
+            - id: iheater_link_petg_temp
+              type: value
+              title: { ru: "PETG", en: "PETG" }
+              unit: { ru: "°C", en: "°C" }
+              vtype: float
+              min: 30
+              max: 90
+              step: 1
+              bind: iheater_link_petg_temp
+              persist: true
+              scope: global
+              default: 50.0
+
+            - id: iheater_link_abs_temp
+              type: value
+              title: { ru: "ABS", en: "ABS" }
+              unit: { ru: "°C", en: "°C" }
+              vtype: float
+              min: 30
+              max: 90
+              step: 1
+              bind: iheater_link_abs_temp
+              persist: true
+              scope: global
+              default: 60.0
+
+            - id: iheater_link_asa_temp
+              type: value
+              title: { ru: "ASA", en: "ASA" }
+              unit: { ru: "°C", en: "°C" }
+              vtype: float
+              min: 30
+              max: 90
+              step: 1
+              bind: iheater_link_asa_temp
+              persist: true
+              scope: global
+              default: 65.0
+
+            - id: iheater_link_pc_temp
+              type: value
+              title: { ru: "PC", en: "PC" }
+              unit: { ru: "°C", en: "°C" }
+              vtype: float
+              min: 30
+              max: 90
+              step: 1
+              bind: iheater_link_pc_temp
+              persist: true
+              scope: global
+              default: 70.0
+
+            - id: iheater_link_pa_temp
+              type: value
+              title: { ru: "PA / NYLON", en: "PA / NYLON" }
+              unit: { ru: "°C", en: "°C" }
+              vtype: float
+              min: 30
+              max: 90
+              step: 1
+              bind: iheater_link_pa_temp
+              persist: true
+              scope: global
+              default: 70.0
+
+            - id: iheater_link_unknown_temp
+              type: value
+              title: { ru: "ДРУГОЙ МАТЕРИАЛ", en: "OTHER MATERIAL" }
+              unit: { ru: "°C", en: "°C" }
+              vtype: float
+              min: 30
+              max: 90
+              step: 1
+              bind: iheater_link_unknown_temp
+              persist: true
+              scope: global
+              default: 50.0
+
+    - id: ha
+      type: submenu
+      title: { ru: "HOME ASSISTANT", en: "HOME ASSISTANT" }
+      children:
+        - id: ha_enabled
+          type: toggle
+          title: { ru: "ВКЛЮЧЕНО", en: "ENABLED" }
+          vtype: bool
+          bind: ha_enabled
+          persist: true
+          scope: global
+          default: false
+
+    - id: units_count
+      type: value
+      title: { ru: "КОЛ-ВО ЮНИТОВ", en: "UNITS" }
+      vtype: uint8
+      min: 1
+      max: 1
+      step: 1
+      bind: units_count
+      persist: true
+      scope: global
+      default: 1
+
+    - id: language
+      type: value
+      title: { ru: "ЯЗЫК", en: "LANGUAGE" }
+      vtype: uint8
+      min: 0
+      max: 1
+      step: 1
+      bind: language
+      persist: true
+      scope: global
+      default: 1
