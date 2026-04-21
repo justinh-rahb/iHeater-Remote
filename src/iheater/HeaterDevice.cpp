@@ -17,6 +17,10 @@
 #include <idryer_protocol.h>
 #include <hal/hal_types.h>
 
+#include <ctype.h>
+
+#include <menu_state.h>
+
 #include "version.h"
 
 using namespace DryerUart;
@@ -38,6 +42,37 @@ namespace iheaterlink
             snprintf(out, outSize, "DEVICE_%02x%02x%02x%02x%02x%02x",
                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
         }
+
+        /// Сопоставить название материала от принтера (Bambu/AMS) с температурой
+        /// из пользовательского меню iHeater Link.
+        ///
+        /// Принтер шлёт `trayType` вида "PLA", "PETG", "ABS", "ASA", "PC",
+        /// "PA-CF", "PAHT", "Nylon" и т.п. Делаем case-insensitive prefix match
+        /// против известных групп. Неизвестный материал → 0 (OFF): греть
+        /// «вслепую» небезопасно.
+        float materialTempFromMenu(const char *trayType)
+        {
+            if (!trayType || trayType[0] == '\0')
+                return 0.0f;
+
+            char upper[16];
+            size_t i = 0;
+            for (; trayType[i] && i < sizeof(upper) - 1; i++)
+                upper[i] = (char)toupper((unsigned char)trayType[i]);
+            upper[i] = '\0';
+
+            if (strncmp(upper, "PETG", 4) == 0) return menu.mat_petg;
+            if (strncmp(upper, "PLA", 3)  == 0) return menu.mat_pla;
+            if (strncmp(upper, "ABS", 3)  == 0) return menu.mat_abs;
+            if (strncmp(upper, "ASA", 3)  == 0) return menu.mat_asa;
+            if (strncmp(upper, "PC", 2)   == 0) return menu.mat_pc;
+            // PA, PA-CF, PAHT, NYLON — всё в колонку PA/NYLON.
+            if (strncmp(upper, "PA", 2)   == 0) return menu.mat_pa;
+            if (strncmp(upper, "NYLON", 5) == 0) return menu.mat_pa;
+
+            // Неизвестный материал — не греем.
+            return 0.0f;
+        }
     } // namespace
 
     // =============================================================================
@@ -58,7 +93,8 @@ namespace iheaterlink
           integrations_(&mqtt_, &integrationsStore_),
           controllerOutput_(RmtOutputConfig{}),
           linkSink_(&controllerOutput_),
-          cmdHandler_(&linkSink_)
+          cmdHandler_(&linkSink_),
+          menuBridge_(&mqtt_)
     {
     }
 
@@ -113,6 +149,28 @@ namespace iheaterlink
         integrationsStore_.begin();
         integrations_.begin();
 
+        // Меню: NVS + дефолты + загрузка сохранённых значений.
+        // Вызываем до cloud_.begin() чтобы к моменту первого publishInfoOnce/publishFullConfig
+        // MenuState и g_menu_cache уже были согласованы.
+        //
+        // Выбор активного ПОДКЛЮЧЕНИЯ из меню (bambu_en/moon_en/ha_en) транслируется
+        // в LinkIntegrationsManager::setActive — без этого Moonraker/Bambu клиент
+        // не запустится даже при `enabled:true` в link_integration.
+        menuBridge_.setActiveConnectionCallback([this](ActiveConnection kind) {
+            using AI = idryer::cloud::ActiveIntegration;
+            AI target = AI::None;
+            switch (kind) {
+                case ActiveConnection::Bambu:     target = AI::Bambu; break;
+                case ActiveConnection::Moonraker: target = AI::Moonraker; break;
+                case ActiveConnection::Ha:        target = AI::Ha; break;
+                case ActiveConnection::None:      target = AI::None; break;
+            }
+            HAL_LOG_INFO("HEATER", "Menu→setActive: %d", (int)target);
+            integrations_.setActive(target);
+        });
+
+        menuBridge_.begin();
+
         cloud_.begin();
 
         HAL_LOG_INFO("HEATER", "Initialized, serial=%s", cloud_.getIdentity().serialNumber);
@@ -150,9 +208,20 @@ namespace iheaterlink
 
     void HeaterDevice::handleMqttCommand(const char *command, JsonObjectConst data)
     {
-        // Все команды (drying/stop/link_integration/bambu_apply/...) идут через CommandHandler.
-        // CommandHandler сам маршрутизирует link_integration/bambu_apply в LinkIntegrationsManager,
-        // остальное — в LinkCommandSink (локальное применение на controllerOutput_).
+        // Меню портала: перехватываем до CommandHandler — тот пытается слать на UART-MCU,
+        // которого на iHeater Link нет (см. LinkCommandSink::GetConfig / SetConfig).
+        if (command && strcmp(command, "get_config") == 0) {
+            menuBridge_.publishFullConfig();
+            return;
+        }
+        if (command && strcmp(command, "set") == 0) {
+            menuBridge_.applySetCommand(data);
+            return;
+        }
+
+        // Все остальные команды (drying/stop/link_integration/bambu_apply/...) идут через
+        // CommandHandler. CommandHandler сам маршрутизирует link_integration/bambu_apply
+        // в LinkIntegrationsManager, остальное — в LinkCommandSink.
         cmdHandler_.handleMqttCommand(command, data);
     }
 
@@ -167,10 +236,15 @@ namespace iheaterlink
 
     void HeaterDevice::onVirtualChamberUpdate(const cloud::VirtualChamberData &data)
     {
+        // Пользователь выбирает источник target через меню ПОДКЛЮЧЕНИЯ
+        // (Bambu / Moonraker / HA — эксклюзивно). Moonraker активен, только если
+        // включён MOONRAKER.
+        const bool autoHeat = menu.moon_en;
+
         // target == 0 ИЛИ объект VIRTUAL_CHAMBER не виден → выключаем нагрев.
         // target > 0 → подаём setpoint на pulse output.
         ControllerOutputCommand cmd{};
-        if (!data.available || data.target <= 0.0f)
+        if (!autoHeat || !data.available || data.target <= 0.0f)
         {
             cmd.mode = ControllerOutputMode::Off;
             cmd.targetTempC = 0.0f;
@@ -183,7 +257,8 @@ namespace iheaterlink
         controllerOutput_.apply(cmd);
 
         HAL_LOG_INFO("HEATER",
-                     "VIRTUAL_CHAMBER: available=%d target=%.1f temp=%.1f hasSensor=%d → output=%s",
+                     "VIRTUAL_CHAMBER: autoHeat=%d available=%d target=%.1f temp=%.1f hasSensor=%d → output=%s",
+                     autoHeat ? 1 : 0,
                      data.available ? 1 : 0,
                      data.target,
                      data.temperature,
@@ -193,32 +268,67 @@ namespace iheaterlink
 
     void HeaterDevice::onBambuPrinterStatusUpdate(const cloud::BambuPrinterStatus &status)
     {
-        // Bambu Reader (для X1C с датчиком камеры): chamberTarget = setpoint.
-        // Если chamberTarget == 0 — принтер не задаёт нагрев камеры; держим OFF.
-        // Не дёргаем apply если активен Moonraker — там приоритетный канал;
-        // но лёгкого способа узнать кто активен здесь нет, полагаемся на
-        // "одна активная интеграция" (политика Manager) — callback приходит
-        // только от активной.
+        // Bambu активен, только если пользователь включил BAMBU в меню ПОДКЛЮЧЕНИЯ.
+        const bool autoHeat = menu.bambu_en;
+
+        // Приоритеты:
+        //   1. Пользователь выключил авто-нагрев → OFF.
+        //   2. Принтер сам знает целевую температуру камеры (X1C с датчиком)
+        //      → используем chamberTarget.
+        //   3. Принтер не задаёт target, но известен материал (AMS tray) →
+        //      берём температуру из пользовательских пресетов (menu.mat_*).
+        //   4. Нет ни target, ни trayType → OFF.
         ControllerOutputCommand cmd{};
-        if (status.chamberTarget <= 0.0f)
+        float menuTemp = 0.0f;
+        const char *source = "off";
+
+        if (!autoHeat)
         {
             cmd.mode = ControllerOutputMode::Off;
             cmd.targetTempC = 0.0f;
+            source = "autoHeat=off";
         }
-        else
+        else if (status.chamberTarget > 0.0f)
         {
             cmd.mode = ControllerOutputMode::TargetTemperature;
             cmd.targetTempC = status.chamberTarget;
+            source = "printer";
         }
+        else if (status.trayType[0] != '\0')
+        {
+            menuTemp = materialTempFromMenu(status.trayType);
+            if (menuTemp > 0.0f)
+            {
+                cmd.mode = ControllerOutputMode::TargetTemperature;
+                cmd.targetTempC = menuTemp;
+                source = "menu";
+            }
+            else
+            {
+                cmd.mode = ControllerOutputMode::Off;
+                cmd.targetTempC = 0.0f;
+                source = "menu=0";
+            }
+        }
+        else
+        {
+            cmd.mode = ControllerOutputMode::Off;
+            cmd.targetTempC = 0.0f;
+            source = "no-target";
+        }
+
         controllerOutput_.apply(cmd);
 
         HAL_LOG_INFO("HEATER",
-                     "BAMBU status: state=%s chamberTarget=%.1f chamberTemp=%.1f tray=%s → output=%s",
+                     "BAMBU status: autoHeat=%d state=%s chamberTarget=%.1f chamberTemp=%.1f tray=%s menu=%.1f → output=%s (src=%s)",
+                     autoHeat ? 1 : 0,
                      status.gcodeState,
                      status.chamberTarget,
                      status.chamberTemp,
                      status.trayType,
-                     cmd.mode == ControllerOutputMode::Off ? "OFF" : "ON");
+                     menuTemp,
+                     cmd.mode == ControllerOutputMode::Off ? "OFF" : "ON",
+                     source);
     }
 
     // =============================================================================
@@ -268,33 +378,28 @@ namespace iheaterlink
         if (!mqtt_.isConnected())
             return;
 
-        StaticJsonDocument<512> doc;
+        // Telemetry = только то, что backend реально читает
+        // (telemetry.handler.ts + broadcastTelemetryUpdate):
+        //   - deviceType, active
+        //   - outputMode, targetTempC (heater intent для WS telemetry:update)
+        //   - units[] (графики и история в БД)
+        //   - rssi, uptime, timestamp (housekeeping)
+        // Snapshot активной интеграции (moonraker.name / bambu.currentFilament /
+        // printerState / progress / chamberTarget) живёт в `integrations/status`
+        // (retained, обновляется при изменении) — дублировать здесь смысла нет.
+        StaticJsonDocument<384> doc;
         doc["deviceType"] = "iheater_link";
         doc["active"] = cloud::activeIntegrationToString(integrations_.getActive());
 
-        // Moonraker snapshot
+        // Нужны для источников температуры и heater intent (ниже)
         const cloud::MoonrakerStatus &ms = integrations_.moonrakerStatus();
-        JsonObject moon = doc.createNestedObject("moonraker");
-        moon["printerState"] = ms.printerState;
-        moon["progress"] = ms.progress;
-        moon["chamberTarget"] = ms.chamberTarget;
-        moon["chamberTemp"] = ms.chamberTemperature;
-        moon["hasSensor"] = ms.chamberHasSensor;
-
-        // Bambu snapshot
         const cloud::BambuPrinterStatus &bs = integrations_.bambuPrinterStatus();
-        JsonObject bam = doc.createNestedObject("bambu");
-        bam["gcodeState"] = bs.gcodeState;
-        bam["chamberTarget"] = bs.chamberTarget;
-        bam["chamberTemp"] = bs.chamberTemp;
-        bam["tray"] = bs.trayType;
 
         // Выход на нагреватель (намерение ESP — STM32 ничего не возвращает).
         const ControllerOutputCommand out = controllerOutput_.getLastCommand();
         const bool heating = (out.mode == ControllerOutputMode::TargetTemperature);
         doc["outputMode"] = static_cast<int>(out.mode);
         doc["targetTempC"] = out.targetTempC;
-        doc["pulseCode"] = controllerOutput_.getLastPulseCode();
 
         // iDryer-совместимый блок units[] — чтобы portal.telemetry.handler
         // сохранял историю и строил графики штатным путём.

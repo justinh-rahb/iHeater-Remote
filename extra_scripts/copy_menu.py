@@ -18,12 +18,36 @@ PROJECT_DIR = Path(env["PROJECT_DIR"])
 SOURCE_DIR = PROJECT_DIR / "menu"
 DEST_DIR = PROJECT_DIR / "lib" / "idryer-menu" / "src"
 
-# Файлы для копирования (только нужные для LINK)
+# Файлы для копирования (полный набор v3_nvs для LINK).
+# Источник истины — menu/menu_v2.yaml; все .cpp/.h ниже генерируются скриптом
+# menu/generator/gen_menu_v3_nvs.py.
 MENU_FILES = [
-    "menu_meta.h",    # метаданные меню (структура, тексты, min/max)
-    "menu_ids.h",     # enum с ID пунктов меню
-    "menu_cache.h",   # кэш значений (заголовок)
-    "menu_cache.cpp", # кэш значений (определение g_menu_cache)
+    # Метаданные + идентификаторы + типы
+    "menu_meta.h",
+    "menu_ids.h",
+    "menu_types.h",
+    # Кэш значений (in-memory снимок для ESP LINK)
+    "menu_cache.h",
+    "menu_cache.cpp",
+    # State + persist (NVS)
+    "menu_state.h",
+    "menu_state.cpp",
+    "menu_nvs.h",
+    "menu_nvs_io.h",
+    "menu_nvs_io.cpp",
+    # Данные меню + биндинги + weak-заглушки колбэков
+    "menu_data.cpp",
+    "menu_bindings.h",
+    "menu_bindings.cpp",
+    "menu_callbacks_weak.cpp",
+]
+
+# Устаревшие файлы от v2 (EEPROM backend) — удаляем из DEST_DIR, если остались
+# после миграции на v3_nvs.
+OBSOLETE_FILES = [
+    "menu_eeprom.h",
+    "menu_eeprom_io.h",
+    "menu_eeprom_io.cpp",
 ]
 
 def copy_menu_files():
@@ -52,6 +76,13 @@ def copy_menu_files():
 
         if copied == 0:
             print("  [MENU] Files up to date")
+
+        # Удаляем устаревшие файлы v2 (EEPROM backend) если они остались
+        for filename in OBSOLETE_FILES:
+            dst = DEST_DIR / filename
+            if dst.exists():
+                dst.unlink()
+                print(f"  [MENU] Removed obsolete: {filename}")
 
         # Создаём library.json если нет
         lib_json = DEST_DIR.parent / "library.json"

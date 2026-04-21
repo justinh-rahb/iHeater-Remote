@@ -25,6 +25,7 @@
 
 #include "controller/RmtOutputAdapter.h"
 #include "iheater/LinkCommandSink.h"
+#include "iheater/MenuBridge.h"
 
 namespace iheaterlink {
 
@@ -100,6 +101,7 @@ private:
     RmtOutputAdapter controllerOutput_;
     LinkCommandSink linkSink_;
     idryer::cloud::CommandHandler cmdHandler_;
+    MenuBridge menuBridge_;
 
     // --- Внешний callback для WebSerial ---
     ClaimPinCallback userClaimPinCallback_;

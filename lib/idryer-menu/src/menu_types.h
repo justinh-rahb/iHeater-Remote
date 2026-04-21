@@ -28,8 +28,8 @@ typedef struct MenuItem {
     struct { void (*invoke)(); } action;
     ValueSpec value;
   } u;
-  int16_t ee_offset; // -1 if no persist (compat/для UI)
-  uint16_t ee_size;
+  int16_t ee_offset; // kept for ABI compatibility; always -1 in NVS backend
+  uint16_t ee_size;  // kept for ABI compatibility; always 0 in NVS backend
 } MenuItem;
 
 extern const MenuItem g_menu[MENU__COUNT];

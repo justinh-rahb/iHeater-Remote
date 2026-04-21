@@ -1,16 +1,14 @@
 // Auto-generated for ESP32 LINK. Do not edit.
-// Contains menu value cache (current values from MCU).
 #pragma once
 
 #include <stdint.h>
 #include <stdbool.h>
 #include "menu_meta.h"
 
-#define MENU_MAX_UNITS 3
+#define MENU_MAX_UNITS 1
 
-// Total menu items: 17, with values: 11
+// Total menu items: 16, with values: 11
 
-// Значение одного элемента меню
 union MenuValue {
     float    f32;
     uint32_t u32;
@@ -20,19 +18,15 @@ union MenuValue {
     bool     b;
 };
 
-// Кэш значений меню для LINK
 class MenuCache {
 public:
-    uint16_t revision = 0;       // Ревизия конфига от MCU
-    uint8_t  active_unit = 0;    // Активный юнит (0..units_count-1)
-    uint8_t  units_count = 1;    // Количество юнитов
-    uint8_t  lang = 0;           // Текущий язык (0=ru, 1=en)
+    uint16_t revision = 0;
+    uint8_t  active_unit = 0;
+    uint8_t  units_count = 1;
+    uint8_t  lang = 0;
 
-    // Значения: [menu_id][unit_index]
-    // Для global элементов используется только [id][0]
     MenuValue values[MENU_META_COUNT][MENU_MAX_UNITS] = {};
 
-    // Получить значение как float
     float getFloat(uint16_t id, uint8_t unit = 255) const {
         if (id >= MENU_META_COUNT) return 0.0f;
         const MenuMeta* m = &g_menu_meta[id];
@@ -51,7 +45,6 @@ public:
         }
     }
 
-    // Установить значение из float
     void setFloat(uint16_t id, float val, uint8_t unit = 255) {
         if (id >= MENU_META_COUNT) return;
         const MenuMeta* m = &g_menu_meta[id];
@@ -70,20 +63,14 @@ public:
         }
     }
 
-    // Получить bool значение
     bool getBool(uint16_t id, uint8_t unit = 255) const {
         return getFloat(id, unit) != 0.0f;
     }
-
-    // Получить int значение
     int32_t getInt(uint16_t id, uint8_t unit = 255) const {
         return (int32_t)getFloat(id, unit);
     }
-
-    // Геттеры для lang и units_count
     uint8_t getLang() const { return lang; }
     uint8_t getUnitsCount() const { return units_count; }
 };
 
-// Глобальный экземпляр кэша
 extern MenuCache g_menu_cache;
