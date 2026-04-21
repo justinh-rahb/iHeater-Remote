@@ -236,6 +236,7 @@ void loop()
                 const auto &id = device.getIdentity();
                 const char *mdnsName = id.hasSerialNumber() ? id.serialNumber : "iheater-link";
                 MDNS.begin(mdnsName);
+                MDNS.addService("_idryer", "_tcp", 80);
             }
 
             Serial.println("\n========================================");
