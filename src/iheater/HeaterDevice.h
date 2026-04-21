@@ -120,7 +120,7 @@ private:
     int  sweepIdx_    = 0;
     int  sweepDir_    = 1;
     uint32_t sweepLastMs_ = 0;
-    static constexpr uint32_t kSweepStepMs = 625; // 8 шагов × 625 мс = 5 с
+    uint32_t sweepStepMs_ = 625;
 };
 
 } // namespace iheaterlink

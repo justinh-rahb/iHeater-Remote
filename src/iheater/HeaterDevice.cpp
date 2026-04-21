@@ -188,11 +188,16 @@ namespace iheaterlink
 
     void HeaterDevice::startRmtSweep()
     {
+        const auto& cfg = controllerOutput_.getConfig();
+        const int step  = cfg.stepTempC > 0 ? cfg.stepTempC : 1;
+        const int count = (cfg.maxTempC - cfg.minTempC) / step + 1;
+        sweepStepMs_ = 5000u / (count > 1 ? (uint32_t)count : 1u);
+
         sweepIdx_    = 0;
         sweepDir_    = 1;
         sweepLastMs_ = millis();
         sweepActive_ = true;
-        HAL_LOG_INFO("HEATER", "RMT sweep started");
+        HAL_LOG_INFO("HEATER", "RMT sweep started: %d steps, %ums/step", count, sweepStepMs_);
     }
 
     void HeaterDevice::stopRmtSweep()
@@ -207,26 +212,28 @@ namespace iheaterlink
 
     void HeaterDevice::sweepStep()
     {
-        // Диапазон: minTempC=45 … maxTempC=80, stepTempC=5 → 8 значений
-        static const float temps[] = {45, 50, 55, 60, 65, 70, 75, 80};
-        static constexpr int kCount = 8;
+        const auto& cfg = controllerOutput_.getConfig();
+        const int step  = cfg.stepTempC > 0 ? cfg.stepTempC : 1;
+        const int count = (cfg.maxTempC - cfg.minTempC) / step + 1;
 
         const uint32_t now = millis();
-        if (now - sweepLastMs_ < kSweepStepMs) return;
+        if (now - sweepLastMs_ < sweepStepMs_) return;
         sweepLastMs_ = now;
+
+        const float temp = cfg.minTempC + sweepIdx_ * step;
 
         ControllerOutputCommand cmd{};
         cmd.mode = ControllerOutputMode::TargetTemperature;
-        cmd.targetTempC = temps[sweepIdx_];
+        cmd.targetTempC = temp;
         controllerOutput_.apply(cmd);
         controllerOutput_.forceFrame();
 
         HAL_LOG_INFO("HEATER", "RMT sweep: %.0f°C (code=%u)",
-                     cmd.targetTempC, controllerOutput_.getLastPulseCode());
+                     temp, controllerOutput_.getLastPulseCode());
 
         sweepIdx_ += sweepDir_;
-        if (sweepIdx_ >= kCount) { sweepIdx_ = kCount - 2; sweepDir_ = -1; }
-        if (sweepIdx_ < 0)       { sweepIdx_ = 1;          sweepDir_ =  1; }
+        if (sweepIdx_ >= count) { sweepIdx_ = count - 2; sweepDir_ = -1; }
+        if (sweepIdx_ < 0)      { sweepIdx_ = 1;         sweepDir_ =  1; }
     }
 
     void HeaterDevice::loop()
