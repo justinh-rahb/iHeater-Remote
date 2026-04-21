@@ -132,7 +132,6 @@ namespace iheaterlink
         readEspMacSerial(mac, sizeof(mac));
         if (mac[0] != '\0')
         {
-            cloud_.setMcuSerial(mac);
             integrations_.setHaClientId(mac);
         }
 
@@ -171,7 +170,14 @@ namespace iheaterlink
 
         menuBridge_.begin();
 
+        // cloud_.begin() загружает NVS — вызываем setMcuSerial ПОСЛЕ,
+        // чтобы save(identity_) не перезаписал токен из NVS пустой строкой.
         cloud_.begin();
+
+        if (mac[0] != '\0')
+        {
+            cloud_.setMcuSerial(mac);
+        }
 
         HAL_LOG_INFO("HEATER", "Initialized, serial=%s", cloud_.getIdentity().serialNumber);
     }

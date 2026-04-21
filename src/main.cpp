@@ -16,6 +16,7 @@
 #include <ArduinoJson.h>
 #include <ImprovWiFiLibrary.h>
 #include <Preferences.h>
+#include <ESPmDNS.h>
 
 #include <menu_commands.h>
 #include <menu_cache.h>
@@ -228,9 +229,27 @@ void loop()
         {
             logsEnabled = true;
             initArduinoHal(&Serial);
+
+            // mDNS нужен для резолва homeassistant.local (HA-интеграция).
+            // В оригинальном iDryer его запускает WsServer — здесь его нет.
+            {
+                const auto &id = device.getIdentity();
+                const char *mdnsName = id.hasSerialNumber() ? id.serialNumber : "iheater-link";
+                MDNS.begin(mdnsName);
+            }
+
             Serial.println("\n========================================");
             Serial.printf("[BOOT] iHeater Link FW=%s\n", VERSION_STR);
             Serial.println("[BOOT] Logs enabled after WiFi config");
+            // Диагностика: что реально прочитано из NVS в момент boot
+            // (store_->load() был вызван в device.begin() до включения логгера).
+            {
+                const auto &id = device.getIdentity();
+                Serial.printf("[BOOT] NVS identity: serial=%s token=%s deviceId=%s\n",
+                              id.hasSerialNumber() ? id.serialNumber : "(none)",
+                              id.hasToken() ? "YES" : "no",
+                              id.hasDeviceId() ? id.deviceId : "(none)");
+            }
             Serial.println("[BOOT] Dev-claim: type 'claim' in Serial Monitor to trigger");
             Serial.println("========================================");
             HAL_LOG_INFO("CLOUD", "WiFi connected, IP: %s, RSSI: %d dBm",
