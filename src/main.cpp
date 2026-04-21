@@ -160,6 +160,16 @@ namespace
             DEBUG_LOG("[CLAIM] Received '%s' command\n", line.c_str());
             triggerClaim();
         }
+        else if (line.equalsIgnoreCase("rmt_sweep"))
+        {
+            DEBUG_LOG("[TEST] RMT sweep start\n");
+            device.startRmtSweep();
+        }
+        else if (line.equalsIgnoreCase("rmt_stop"))
+        {
+            DEBUG_LOG("[TEST] RMT sweep stop\n");
+            device.stopRmtSweep();
+        }
     }
 
     void processWebSerialCommands()

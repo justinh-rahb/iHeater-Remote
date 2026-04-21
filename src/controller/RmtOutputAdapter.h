@@ -37,6 +37,7 @@ public:
 
     uint8_t getLastPulseCode() const { return lastPulseCode_; }
     bool isEnabled() const { return config_.outputPin != 0xFF && initialized_; }
+    void forceFrame();
 
 private:
     static constexpr size_t MAX_ITEMS = 128;

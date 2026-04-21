@@ -125,6 +125,13 @@ void RmtOutputAdapter::rebuildFrame(uint8_t pulseCode)
     builtForCode_ = pulseCode;
 }
 
+void RmtOutputAdapter::forceFrame()
+{
+    if (!isEnabled()) return;
+    lastFrameMs_ = millis();
+    sendFrame();
+}
+
 void RmtOutputAdapter::sendFrame()
 {
     if (builtForCode_ != lastPulseCode_) {

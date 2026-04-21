@@ -51,6 +51,10 @@ public:
     /// Инициирует процесс claim. Возвращает false, если claim невозможен сейчас.
     bool requestClaimProcess();
 
+    /// Запустить тестовый sweep RMT: весь диапазон температур вверх-вниз за 5 секунд.
+    void startRmtSweep();
+    void stopRmtSweep();
+
     /// Колбэк на PIN от CloudStateMachine — прокидывается в WebSerial UI.
     void setClaimPinCallback(ClaimPinCallback cb) { userClaimPinCallback_ = std::move(cb); }
 
@@ -109,6 +113,14 @@ private:
     // --- Состояние публикаций ---
     bool infoPublished_ = false;
     uint32_t lastTelemetryAt_ = 0;
+
+    // --- RMT sweep тест ---
+    void sweepStep();
+    bool sweepActive_ = false;
+    int  sweepIdx_    = 0;
+    int  sweepDir_    = 1;
+    uint32_t sweepLastMs_ = 0;
+    static constexpr uint32_t kSweepStepMs = 625; // 8 шагов × 625 мс = 5 с
 };
 
 } // namespace iheaterlink
