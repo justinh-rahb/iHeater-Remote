@@ -165,11 +165,11 @@ if (meta) {
 
 ## Генерация файлов
 
-Файлы menu_meta.h, menu_ids.h, menu_cache.h, menu_cache.cpp генерируются из YAML:
+Все файлы `src/menu_*.h/cpp` генерируются из `menu_v2.yaml`:
 
 ```bash
-cd config-exmple/menu/generator
-python gen_menu_v2.py
+cd lib/idryer-menu/generator
+python gen_menu_v3_nvs.py ../menu_v2.yaml
 ```
 
-При сборке `copy_menu.py` автоматически копирует файлы из `config-exmple/menu/` в `lib/idryer-menu/src/`.
+Результат записывается напрямую в `lib/idryer-menu/src/`.

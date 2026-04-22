@@ -1,29 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Генератор меню из YAML с поддержкой scope: global / per_controller.
+Генератор меню v3 (NVS backend).
 
-- global         → одиночное поле (одно значение на всю систему)
-- per_controller → массив [NUM_UNITS] и отдельные слоты в EEPROM (stride = sizeof(type))
+Отличия от v2:
+- Persist через ESP32 Preferences (NVS), а не Arduino EEPROM.
+- Ключ NVS = `bind` (global) или `bind_{unit}` (per_controller).
+- Лимит NVS key = 15 символов: bind global ≤ 15, bind per_controller ≤ 12
+  (чтобы поместился суффикс `_NN`).
+- Убраны iDryer-специфичные блоки EEPROM (calibration, errlog) — не нужны
+  для ESP32-only проектов.
+- MAGIC/VERSION проверяются NVS-ключами `__magic` / `__version`.
 
-Выход:
-  menu_ids.h, menu_types.h, menu_eeprom.h,
+Артефакты на выходе:
+  menu_ids.h, menu_types.h,
   menu_state.h, menu_state.cpp,
-  menu_eeprom_io.h, menu_eeprom_io.cpp,
+  menu_nvs.h, menu_nvs_io.h, menu_nvs_io.cpp,
   menu_data.cpp,
   menu_bindings.h, menu_bindings.cpp,
   menu_callbacks_weak.cpp,
-  menu_presets_autogen.h
+  menu_presets_autogen.h,
+  menu_meta.h,
+  menu_cache.h, menu_cache.cpp.
+
+YAML-структура — та же что у v2 (drop-in совместимый).
 """
 
 import os, sys, re, argparse, textwrap, yaml
 
-EE_SYS_CAL_SIZE = 48
-EE_SCALE_TEMP_SIZE = 96
-
-ERRLOG_HDR_SIZE = 12
-ERRLOG_REC_SIZE = 16
-ERRLOG_CAP      = 128
+# NVS key длина
+NVS_KEY_MAX = 15
+# Резерв под суффикс "_NN" у per_controller (до 99 юнитов)
+NVS_KEY_RESERVED_FOR_UNIT = 3
 
 # ---------------------------
 # Типы значений
@@ -37,18 +45,6 @@ VTYPES = {
     "uint32": ("uint32_t",  "VT_U32", 4),
 }
 MENU_TYPES = {"submenu":"MN_SUBMENU","value":"MN_VALUE","toggle":"MN_TOGGLE","action":"MN_ACTION"}
-
-# ---------------------------
-# Фиксированная системная зона в начале EEPROM
-# ---------------------------
-EE_SYS_OFF_MAGIC    = 0x00  # 4 байта
-EE_SYS_OFF_VERSION  = 0x04  # 4 байта (держим 4 для выравнивания)
-EE_OFF_WT_HOURS     = 0x08  # uint32_t
-EE_OFF_WT_MINUTES   = 0x0C  # uint8_t
-EE_SYS_AREA_SIZE    = 0x10  # меню начинается отсюда
-
-# Узлы, которые НЕЛЬЗЯ класть в persist-блок меню (хранить их только в системной зоне)
-SKIP_PERSIST_IDS = {"wt_hours", "wt_minutes"}
 
 # ---------------------------
 # Утилиты
@@ -80,14 +76,12 @@ def infer_lang_order(langs_set):
 def c_string(s): return '"' + str(s).replace('\\','\\\\').replace('"','\\"') + '"'
 
 def c_float(v):
-    """Форматирует float для C++ литерала: 35 → 35.0f, 0.1 → 0.1f"""
     s = f"{float(v):.6g}"
     if '.' not in s and 'e' not in s.lower():
         s += ".0"
     return s + "f"
 
 def flatten(nodes, parent_idx=-1, out=None, inherited_scope=None):
-    """Сплющивает дерево и прокидывает scope вниз (по умолчанию per_controller)."""
     if out is None: out = []
     for n in nodes:
         idx = len(out)
@@ -108,21 +102,39 @@ def flatten(nodes, parent_idx=-1, out=None, inherited_scope=None):
             flatten(kids, idx, out, scope)
     return out
 
+def validate_binds(flat):
+    """Проверка что bind-имена влезут в NVS ключ."""
+    errors = []
+    for fn in flat:
+        r = fn["raw"]
+        bind = r.get("bind")
+        if not bind:
+            continue
+        if r["type"] not in ("value", "toggle"):
+            continue
+        limit = NVS_KEY_MAX - (NVS_KEY_RESERVED_FOR_UNIT if fn["scope"] != "global" else 0)
+        if len(bind) > limit:
+            scope_note = "global" if fn["scope"] == "global" else "per_controller (резерв 3 символа под _NN)"
+            errors.append(
+                f"  - bind '{bind}' (id={r.get('id')}, scope={scope_note}) имеет {len(bind)} символов, лимит {limit}"
+            )
+    if errors:
+        print("ERROR: bind-имена превышают лимит NVS ключа (15 символов).", file=sys.stderr)
+        print("\n".join(errors), file=sys.stderr)
+        sys.exit(1)
+
 def node_title_unit_arrays(raw, lang_order):
-    # title
     if isinstance(raw.get("title"), dict):
         titles = [c_string(raw["title"].get(l, raw["title"].get("en",""))) for l in lang_order]
     else:
         t = c_string(raw.get("title",""))
         titles = [t for _ in lang_order]
-    # unit
     uo = raw.get("unit")
     if isinstance(uo, dict):
         units = [c_string(uo.get(l, uo.get("en",""))) for l in lang_order]
     elif isinstance(uo, str):
         u = c_string(uo); units = [u for _ in lang_order]
     else:
-        # units = ["NULL" for _ in lang_order]
         units = ["nullptr" for _ in lang_order]
     return titles, units
 
@@ -138,53 +150,18 @@ def _find_up(filename, start):
         cur = parent
 
 def read_version_major(default=1):
-    # ищем version.h вверх от каталога скрипта
     here = os.path.dirname(__file__)
     vpath = _find_up("version.h", here)
     if not vpath:
         return default
     text = open(vpath, "r", encoding="utf-8").read()
-
     m = re.search(r"#define\s+VERSION_MAJOR\s+(\d+)", text)
     if m:
         return int(m.group(1))
-
-    m = re.search(r'"(\d+)\.(\d+)\.(\d+)"', text)  # запасной вариант "X.Y.Z"
+    m = re.search(r'"(\d+)\.(\d+)\.(\d+)"', text)
     if m:
-        return int(m.group(1))  # major - первая группа
-
+        return int(m.group(1))
     return default
-
-# ---------------------------
-# Разметка EEPROM
-# ---------------------------
-# def eeprom_layout(flat, num_units: int):
-#     """
-#     Возвращает:
-#       offsets: dict[id] = dict(base=<addr>, size=<bytes>, stride=<bytes>, scope=<str>)
-#       total:   общий размер EEPROM (включая системную зону)
-#     """
-#     off = EE_SYS_AREA_SIZE
-        
-#     offsets = {}
-#     for f in flat:
-#         r = f["raw"]; scope = f["scope"]
-#         t = r["type"]
-#         if t in ("value","toggle") and r.get("persist", False):
-#             rid = r.get("id")
-#             if rid in SKIP_PERSIST_IDS:
-#                 continue
-#             vtype = r.get("vtype") or ("bool" if t=="toggle" else None)
-#             if vtype not in VTYPES:
-#                 raise SystemExit(f"Unknown vtype in {r.get('id')}")
-#             size = VTYPES[vtype][2]
-#             if scope == "global":
-#                 offsets[rid] = dict(base=off, size=size, stride=0, scope=scope)
-#                 off += size
-#             else:
-#                 offsets[rid] = dict(base=off, size=size, stride=size, scope=scope)
-#                 off += size * num_units
-#     return offsets, off  # total включает системную зону
 
 # ---------------------------
 # Генерация файлов
@@ -232,118 +209,127 @@ typedef struct MenuItem {
     struct { void (*invoke)(); } action;
     ValueSpec value;
   } u;
-  int16_t ee_offset; // -1 if no persist (compat/для UI)
-  uint16_t ee_size;
+  int16_t ee_offset; // kept for ABI compatibility; always -1 in NVS backend
+  uint16_t ee_size;  // kept for ABI compatibility; always 0 in NVS backend
 } MenuItem;
 
 extern const MenuItem g_menu[MENU__COUNT];
 """))
 
-def emit_menu_eeprom_h(path, flat, offsets, total, magic=0x4D4E5551, version=1, num_units=3):
+def emit_menu_nvs_h(path, namespace, magic, version):
+    """Константы NVS backend: namespace, MAGIC, VERSION."""
     with open(path, "w", encoding="utf-8") as f:
-        f.write("// Auto-generated. Do not edit.\n#pragma once\n#include <stdint.h>\n\n")
-        f.write(f"#define EE_MAGIC   0x{magic:08X}\n")
-        f.write(f"#define EE_VERSION {version}\n\n")
-        f.write(f"#ifndef NUM_UNITS\n#define NUM_UNITS {num_units}\n#endif\n\n")
+        f.write("// Auto-generated. Do not edit.\n#pragma once\n")
+        f.write("// NVS backend — используется ESP32 Preferences.\n\n")
+        f.write(f"#define NVS_MENU_NAMESPACE \"{namespace}\"\n")
+        f.write(f"#define NVS_MENU_MAGIC      0x{magic:08X}U\n")
+        f.write(f"#define NVS_MENU_VERSION    {version}\n\n")
+        f.write("// Служебные ключи (префикс __ чтобы не пересекались с bind-ключами).\n")
+        f.write("#define NVS_KEY_MAGIC   \"__magic\"\n")
+        f.write("#define NVS_KEY_VERSION \"__version\"\n")
 
-        # Системная зона (фиксированное начало EEPROM)
-        f.write("// System area (fixed at start of EEPROM)\n")
-        f.write(f"#define EE_SYS_OFF_MAGIC   {EE_SYS_OFF_MAGIC}\n")
-        f.write(f"#define EE_SYS_OFF_VERSION {EE_SYS_OFF_VERSION}\n")
-        f.write(f"#define EE_OFF_WT_HOURS    {EE_OFF_WT_HOURS}\n")
-        f.write(f"#define EE_OFF_WT_MINUTES  {EE_OFF_WT_MINUTES}\n")
-        # f.write(f"#define EE_SYS_AREA_SIZE   {EE_SYS_AREA_SIZE}\n\n")
+def emit_menu_nvs_io(path_h, path_cpp):
+    with open(path_h, "w", encoding="utf-8") as f:
+        f.write(textwrap.dedent("""
+// Auto-generated. Do not edit.
+// NVS I/O helpers — шаблоны поверх ESP32 Preferences.
+#pragma once
+#include <Arduino.h>
+#include <Preferences.h>
+#include <string.h>
+#include "menu_nvs.h"
 
+// Общий экземпляр Preferences для меню.
+// Открывается один раз в menu_nvs_begin(), не требует begin/end на каждый доступ.
+extern Preferences g_menu_prefs;
 
-        # Системная область с калибровкой весов
-        f.write("\n// ---- Scales calibration (protected, inside system area) ----\n")
-        f.write(f"#define EE_SYS_CAL_BASE            {16}\n\n")
-        
-        # Zero calibration
-        f.write("// Ноль для каждой катушки: uint32_t[4]\n")
-        f.write("#define EE_SYS_CAL_ZERO_BASE       (EE_SYS_CAL_BASE + 0)\n")
-        f.write("#define EE_SYS_CAL_ZERO(i)         (EE_SYS_CAL_ZERO_BASE + (uint16_t)((i) * sizeof(uint32_t))) // i=0..3\n\n")
-        
-        # Offset calibration
-        f.write("// Оффсет/масштаб для каждой катушки: uint32_t[4]\n")
-        f.write("#define EE_SYS_CAL_OFFSET_BASE     (EE_SYS_CAL_ZERO_BASE + 4*4)\n")
-        f.write("#define EE_SYS_CAL_OFFSET(i)       (EE_SYS_CAL_OFFSET_BASE + (uint16_t)((i) * sizeof(uint32_t)))\n\n")
-        
-        # Calibration block size
-        f.write("// общий размер блока калибровки + 16 на всякий\n")
-        f.write("#define EE_SYS_CAL_SIZE            (sizeof(uint32_t) * 4 * 2 + 16)\n\n")
+bool menu_nvs_begin();
+void menu_nvs_end();
 
-        # Temperature compensation table
-        f.write("// ---- Scales temperature offsets table (uint32_t[4][6]) ----\n")
-        f.write("#define EE_SCALE_TEMP_BASE              (EE_SYS_CAL_BASE + EE_SYS_CAL_SIZE)\n")
-        f.write("#define EE_SCALE_TEMP_STRIDE_SPOOL      (6 * 4)   // 6 points per spool * 4 bytes each\n")
-        f.write("// Accessor: spool i=0..3, point j=0..5 (e.g., temps 60..110)\n")
-        f.write("#define EE_SCALE_TEMP(i,j)             (EE_SCALE_TEMP_BASE + (uint16_t)((i) * EE_SCALE_TEMP_STRIDE_SPOOL + (j) * sizeof(uint32_t)))\n")
-        f.write("// Table size: 4 spools * 6 points * 4 bytes = 96 bytes\n")
-        f.write("#define EE_SCALE_TEMP_SIZE             (4*6*4)\n\n")
+// Чтение значения по ключу. Если ключа нет — out остаётся с исходным значением
+// (используется как default), возвращаем false.
+template<typename T> inline bool ee_read(const char* key, T& out);
 
+template<> inline bool ee_read<float>(const char* k, float& o){
+  if (!g_menu_prefs.isKey(k)) return false;
+  o = g_menu_prefs.getFloat(k, o); return true;
+}
+template<> inline bool ee_read<uint8_t>(const char* k, uint8_t& o){
+  if (!g_menu_prefs.isKey(k)) return false;
+  o = g_menu_prefs.getUChar(k, o); return true;
+}
+template<> inline bool ee_read<uint16_t>(const char* k, uint16_t& o){
+  if (!g_menu_prefs.isKey(k)) return false;
+  o = g_menu_prefs.getUShort(k, o); return true;
+}
+template<> inline bool ee_read<uint32_t>(const char* k, uint32_t& o){
+  if (!g_menu_prefs.isKey(k)) return false;
+  o = g_menu_prefs.getUInt(k, o); return true;
+}
+template<> inline bool ee_read<int32_t>(const char* k, int32_t& o){
+  if (!g_menu_prefs.isKey(k)) return false;
+  o = g_menu_prefs.getInt(k, o); return true;
+}
+template<> inline bool ee_read<bool>(const char* k, bool& o){
+  if (!g_menu_prefs.isKey(k)) return false;
+  o = g_menu_prefs.getBool(k, o); return true;
+}
 
-        f.write(f"// Итоговый размер системной области: {EE_SYS_AREA_SIZE} (MAGIC..MINUTES) + {EE_SYS_CAL_SIZE} (калибровка) = {EE_SYS_AREA_SIZE + EE_SYS_CAL_SIZE}\n")
-        f.write(f"#define EE_SYS_AREA_SIZE           {EE_SYS_AREA_SIZE + EE_SYS_CAL_SIZE +  EE_SCALE_TEMP_SIZE}\n\n")
+// Безусловная запись (всегда).
+template<typename T> inline bool ee_write(const char* key, const T& val);
 
+template<> inline bool ee_write<float>(const char* k, const float& v){
+  return g_menu_prefs.putFloat(k, v) > 0;
+}
+template<> inline bool ee_write<uint8_t>(const char* k, const uint8_t& v){
+  return g_menu_prefs.putUChar(k, v) > 0;
+}
+template<> inline bool ee_write<uint16_t>(const char* k, const uint16_t& v){
+  return g_menu_prefs.putUShort(k, v) > 0;
+}
+template<> inline bool ee_write<uint32_t>(const char* k, const uint32_t& v){
+  return g_menu_prefs.putUInt(k, v) > 0;
+}
+template<> inline bool ee_write<int32_t>(const char* k, const int32_t& v){
+  return g_menu_prefs.putInt(k, v) > 0;
+}
+template<> inline bool ee_write<bool>(const char* k, const bool& v){
+  return g_menu_prefs.putBool(k, v) > 0;
+}
 
-# --- Error log area ---
-        f.write("// ---- Error log area ----\n")
-        f.write(f"#define ERRLOG_CAP           {ERRLOG_CAP}\n")
-        f.write(f"#define ERRLOG_REC_SIZE      {ERRLOG_REC_SIZE}\n")
-        f.write(f"#define ERRLOG_HDR_SIZE      {ERRLOG_HDR_SIZE}\n")
-        f.write("#define EE_ERR_BASE          (EE_SYS_AREA_SIZE)\n")
-        f.write("#define EE_ERR_OFF_HDR       (EE_ERR_BASE)\n")
-        f.write("#define EE_ERR_OFF_RECS      (EE_ERR_BASE + ERRLOG_HDR_SIZE)\n")
-        f.write("#define EE_ERR_AREA_SIZE     (ERRLOG_HDR_SIZE + (ERRLOG_CAP * ERRLOG_REC_SIZE))\n\n")
+// Запись только если значение изменилось. Возвращает true если было изменение.
+template<typename T>
+inline bool ee_store_field(const char* key, const T& val){
+  T cur = val;
+  bool had = ee_read<T>(key, cur);
+  if (had && cur == val) return false;
+  ee_write<T>(key, val);
+  return true;
+}
 
+// Построить NVS-ключ для per_controller поля: "{bind}_{idx}".
+// out буфер должен быть >= 16 байт.
+inline void menu_nvs_key_per_unit(char* out, size_t cap, const char* bind, uint8_t idx){
+  snprintf(out, cap, "%s_%u", bind, (unsigned)idx);
+}
+"""))
+    with open(path_cpp, "w", encoding="utf-8") as f:
+        f.write(textwrap.dedent("""
+// Auto-generated. Do not edit.
+#include "menu_nvs_io.h"
 
-        # Offsets для persist-полей меню
-        for fn in flat:
-            nid = fn["raw"]["id"]
-            if nid in offsets:
-                o = offsets[nid]
-                if o["stride"] == 0:  # global
-                    f.write(f"#define EE_OFF_{nid.upper()} {o['base']}\n")
-                else:  # per_controller
-                    f.write(f"#define EE_OFF_{nid.upper()}_BASE   {o['base']}\n")
-                    f.write(f"#define EE_OFF_{nid.upper()}_STRIDE {o['stride']}\n")
-                    f.write(f"#define EE_OFF_{nid.upper()}(i) (EE_OFF_{nid.upper()}_BASE + (uint16_t)((i) * EE_OFF_{nid.upper()}_STRIDE))\n")
-        f.write(f"\n#define EE_TOTAL_SIZE {total}\n")
+Preferences g_menu_prefs;
 
-def eeprom_layout(flat, num_units: int):
-    """
-    Возвращает:
-      offsets: dict[id] = dict(base=<addr>, size=<bytes>, stride=<bytes>, scope=<str>)
-      total:   общий размер EEPROM (включая системную зону)
-    """
-    # off = EE_SYS_AREA_SIZE
-    # off = EE_SYS_AREA_SIZE + (ERRLOG_HDR_SIZE + ERRLOG_REC_SIZE * ERRLOG_CAP)
-    off = EE_SYS_AREA_SIZE + EE_SYS_CAL_SIZE +  EE_SCALE_TEMP_SIZE + (ERRLOG_HDR_SIZE + ERRLOG_REC_SIZE * ERRLOG_CAP)
-    
-    offsets = {}
-    for f in flat:
-        r = f["raw"]
-        scope = f["scope"]  # ВАЖНО: берём scope из узла flatten, а не r.get("scope")
-        t = r["type"]
-        if t in ("value","toggle") and r.get("persist", False):
-            rid = r.get("id")
-            if rid in SKIP_PERSIST_IDS:
-                continue
-            vtype = r.get("vtype") or ("bool" if t=="toggle" else None)
-            if vtype not in VTYPES:
-                raise SystemExit(f"Unknown vtype in {r.get('id')}")
-            size = VTYPES[vtype][2]
-            if scope == "global":
-                offsets[rid] = dict(base=off, size=size, stride=0, scope=scope)
-                off += size
-            else:
-                offsets[rid] = dict(base=off, size=size, stride=size, scope=scope)
-                off += size * num_units
-    return offsets, off
+bool menu_nvs_begin(){
+  return g_menu_prefs.begin(NVS_MENU_NAMESPACE, /*readOnly=*/false);
+}
+
+void menu_nvs_end(){
+  g_menu_prefs.end();
+}
+"""))
 
 def emit_menu_state_h(path, flat, num_units):
-    # bind -> (ctype, vtype, scope, default)
     by_bind = {}
     for fn in flat:
         r = fn["raw"]
@@ -351,21 +337,14 @@ def emit_menu_state_h(path, flat, num_units):
             bind  = r["bind"]
             vtype = r.get("vtype") or ("bool" if r["type"] == "toggle" else None)
             ctype = VTYPES[vtype][0]
-            scope = fn["scope"]               # <<< ВАЖНО: берем scope из плоского узла!
+            scope = fn["scope"]
             dv    = r.get("default", 0)
-
-            # Если один и тот же bind встречается в нескольких местах и
-            # одна из них глобальная - выигрывает global (скаляр).
             if bind not in by_bind:
                 by_bind[bind] = (ctype, vtype, scope, dv)
             else:
                 c0, v0, s0, d0 = by_bind[bind]
                 if s0 != "global" and scope == "global":
                     by_bind[bind] = (ctype, vtype, scope, dv)
-
-    #! временная отладка
-    for bind, (_, _, scope, _) in by_bind.items():
-        print("FIELD", bind, "->", scope)
 
     def fmt_default(vtype, ctype, dv):
         if vtype in ("uint16","uint8","int32","uint32"):
@@ -389,44 +368,37 @@ def emit_menu_state_h(path, flat, num_units):
         "class MenuState {",
         "public:",
     ]
-
-    # Генерируем поля класса по bind'ам
     for bind, (ctype, vtype, scope, dv) in by_bind.items():
         init = fmt_default(vtype, ctype, dv)
         if scope == "global":
-            # СКАЛЯР - то, что нужно для controller_choice/language
             lines.append(f"  {ctype} {bind} = {init};")
         else:
-            # Массив для per_controller
             lines.append(f"  {ctype} {bind}[NUM_UNITS] = {{ {init} }};")
-
     lines += [
         "",
-        "  void initDefaults();   // выставить дефолты (из YAML)",
-        "  void loadFromEEPROM(); // подхватить, если MAGIC/VER совпали",
-        "  void saveToEEPROM();   // записать только изменённые поля",
+        "  void initDefaults();   // выставить дефолты из YAML",
+        "  void loadFromNVS();    // подхватить значения из NVS",
+        "  void saveToNVS();      // записать все поля в NVS (создать namespace)",
         "};",
         "",
         "extern MenuState menu;",
     ]
-
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-def emit_menu_state_cpp(path, flat, offsets):
+def emit_menu_state_cpp(path, flat):
     h = []
     h.append("// Auto-generated. Do not edit.")
     h.append("#include <string.h>")
-    h.append("#include <EEPROM.h>")
+    h.append("#include <stdio.h>")
     h.append("#include \"menu_state.h\"")
     h.append("#include \"menu_types.h\"")
-    h.append("#include \"menu_eeprom.h\"")
-    h.append("#include \"menu_eeprom_io.h\"")
+    h.append("#include \"menu_nvs.h\"")
+    h.append("#include \"menu_nvs_io.h\"")
     h.append("")
     h.append("MenuState menu;")
     h.append("")
 
-    # initDefaults: global -> скаляр, per_controller -> цикл
     h.append("void MenuState::initDefaults(){")
     for fn in flat:
         r = fn["raw"]; scope = fn["scope"]
@@ -445,92 +417,44 @@ def emit_menu_state_cpp(path, flat, offsets):
     h.append("}")
     h.append("")
 
-    # loadFromEEPROM: stride==0 -> скаляр, иначе цикл по i
-    h.append("void MenuState::loadFromEEPROM(){")
-    h.append("  uint32_t magic=0, ver=0;")
-    h.append("  ee_read(EE_SYS_OFF_MAGIC, magic);")
-    h.append("  ee_read(EE_SYS_OFF_VERSION, ver);")
-    h.append("  if (magic != EE_MAGIC || ver != EE_VERSION) return;")
+    h.append("void MenuState::loadFromNVS(){")
+    h.append("  uint32_t magic = 0, ver = 0;")
+    h.append("  ee_read(NVS_KEY_MAGIC, magic);")
+    h.append("  ee_read(NVS_KEY_VERSION, ver);")
+    h.append("  if (magic != NVS_MENU_MAGIC || ver != (uint32_t)NVS_MENU_VERSION) return;")
+    h.append("  char key[16];")
+    h.append("  (void)key;")
     for fn in flat:
         r = fn["raw"]
         if r.get("type") in ("value","toggle") and r.get("persist", False):
-            rid = r["id"]; 
-            if rid in SKIP_PERSIST_IDS or rid not in offsets: continue
-            bind = r["bind"]; o = offsets[rid]
-            if o["stride"] == 0:
-                h.append(f"  ee_read({o['base']}, this->{bind});")
+            bind = r["bind"]; scope = fn["scope"]
+            if scope == "global":
+                h.append(f"  ee_read(\"{bind}\", this->{bind});")
             else:
-                h.append(f"  for (int i=0;i<NUM_UNITS;i++) ee_read((uint16_t)EE_OFF_{rid.upper()}(i), this->{bind}[i]);")
+                h.append(f"  for (int i=0;i<NUM_UNITS;i++) {{ menu_nvs_key_per_unit(key, sizeof(key), \"{bind}\", i); ee_read(key, this->{bind}[i]); }}")
     h.append("}")
     h.append("")
 
-    # saveToEEPROM: stride==0 -> скаляр, иначе цикл по i
-    h.append("void MenuState::saveToEEPROM(){")
-    h.append("  ee_write(EE_SYS_OFF_MAGIC,   (uint32_t)EE_MAGIC);")
-    h.append("  ee_write(EE_SYS_OFF_VERSION, (uint32_t)EE_VERSION);")
+    h.append("void MenuState::saveToNVS(){")
+    h.append("  ee_write(NVS_KEY_MAGIC,   (uint32_t)NVS_MENU_MAGIC);")
+    h.append("  ee_write(NVS_KEY_VERSION, (uint32_t)NVS_MENU_VERSION);")
+    h.append("  char key[16];")
+    h.append("  (void)key;")
     for fn in flat:
         r = fn["raw"]
         if r.get("type") in ("value","toggle") and r.get("persist", False):
-            rid = r["id"]; 
-            if rid in SKIP_PERSIST_IDS or rid not in offsets: continue
-            bind = r["bind"]; o = offsets[rid]
-            if o["stride"] == 0:
-                h.append(f"  ee_store_field({o['base']}, this->{bind});")
+            bind = r["bind"]; scope = fn["scope"]
+            if scope == "global":
+                h.append(f"  ee_store_field(\"{bind}\", this->{bind});")
             else:
-                h.append(f"  for (int i=0;i<NUM_UNITS;i++) ee_store_field((uint16_t)EE_OFF_{rid.upper()}(i), this->{bind}[i]);")
+                h.append(f"  for (int i=0;i<NUM_UNITS;i++) {{ menu_nvs_key_per_unit(key, sizeof(key), \"{bind}\", i); ee_store_field(key, this->{bind}[i]); }}")
     h.append("}")
 
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(h))
 
-def emit_menu_eeprom_io(path_h, path_cpp):
-    with open(path_h, "w", encoding="utf-8") as f:
-        f.write(textwrap.dedent("""
-// Auto-generated. Do not edit.
-#pragma once
-#include <Arduino.h>
-#include <EEPROM.h>
-#include <string.h>
-
-// Чтение произвольного типа T из EEPROM
-template<typename T>
-inline bool ee_read(uint16_t addr, T& out){
-  EEPROM.get(addr, out);
-  return true;
-}
-
-// Запись произвольного типа T в EEPROM (всегда пишет)
-template<typename T>
-inline bool ee_write(uint16_t addr, const T& val){
-  EEPROM.put(addr, val);
-  #if defined(EEPROM_CLASS_VERSION) || defined(ARDUINO_ARCH_RP2040)
-    EEPROM.commit();
-  #endif
-  return true;
-}
-
-// Записать ТОЛЬКО если значение изменилось; вернуть, было ли изменение.
-template<typename T>
-inline bool ee_store_field(uint16_t addr, const T& val){
-  T cur{};
-  EEPROM.get(addr, cur);
-  if (memcmp(&cur, &val, sizeof(T))==0) return false;
-  EEPROM.put(addr, val);
-  #if defined(EEPROM_CLASS_VERSION) || defined(ARDUINO_ARCH_RP2040)
-    EEPROM.commit();
-  #endif
-  return true;
-}
-"""))
-    with open(path_cpp, "w", encoding="utf-8") as f:
-        f.write("// Auto-generated helpers are templates in header; cpp kept for build systems.\n")
-
-def emit_menu_data_cpp(path, flat, lang_order, offsets):
-    """
-    Генерирует menu_data.cpp.
-    ВАЖНО: для per_controller-полей (scope=per_controller) ставим ee_offset=-1, ee_size=0,
-    т.к. реальные адреса EEPROM рассчитываются через BASE/STRIDE в menu_bindings.*
-    """
+def emit_menu_data_cpp(path, flat, lang_order):
+    """В NVS backend ee_offset/ee_size всегда -1/0 (поля оставлены для ABI совместимости)."""
     with open(path, "w", encoding="utf-8") as f:
         f.write("// Auto-generated. Do not edit.\n")
         f.write("#include <stddef.h>\n")
@@ -538,7 +462,6 @@ def emit_menu_data_cpp(path, flat, lang_order, offsets):
         f.write("#include \"menu_types.h\"\n")
         f.write("#include \"menu_state.h\"\n\n")
 
-        # Собираем уникальные имена колбэков
         on_changes = []
         on_invokes = []
         seen_chg, seen_inv = set(), set()
@@ -553,7 +476,6 @@ def emit_menu_data_cpp(path, flat, lang_order, offsets):
                 if iv and iv not in seen_inv:
                     on_invokes.append(iv); seen_inv.add(iv)
 
-        # Объявления колбэков с C-линковкой (совместимо с weak-заглушками)
         if on_changes or on_invokes:
             f.write('#ifdef __cplusplus\nextern "C" {\n#endif\n')
             for oc in on_changes: f.write(f"void {oc}(void*);\n")
@@ -565,7 +487,6 @@ def emit_menu_data_cpp(path, flat, lang_order, offsets):
 
         for i, fn in enumerate(flat):
             r = fn["raw"]
-            scope = fn.get("scope", "per_controller")  # по умолчанию локальные
             eid = to_enum_id(r["id"])
             titles, units = node_title_unit_arrays(r, lang_order)
             tcode = MENU_TYPES[r["type"]]
@@ -584,33 +505,17 @@ def emit_menu_data_cpp(path, flat, lang_order, offsets):
                 minv = float(r.get("min", 0))
                 maxv = float(r.get("max", 0))
                 step = float(r.get("step", 1))
-                # onch = r.get("on_change") or "NULL"
                 onch = r.get("on_change") or "nullptr"
                 apply = "true" if (r.get("apply") == "live") else "false"
 
-                # Для UI всё равно нужен указатель на данные (глобальные или на [0] массива)
                 f.write(
                     f"    {{ {{ NULL }}, "
                     f"{{ {vtc}, (void*)&menu.{bind}, {minv:.6g}, {maxv:.6g}, {step:.6g}, {onch}, {apply} }} }},\n"
                 )
-
-                # EEPROM-метаданные в MenuItem:
-                # - global: кладём реальный оффсет/размер
-                # - per_controller: в MenuItem не кладём оффсет; EEPROM делает menu_bindings по BASE/STRIDE
-                if r.get("persist") and r["id"] in offsets:
-                    o = offsets[r["id"]]
-                    if o.get("stride", 0) == 0 or scope == "global":
-                        off, size = o["base"], o["size"]
-                    else:
-                        off, size = -1, 0
-                else:
-                    off, size = -1, 0
-
-                f.write(f"    {off}, {size}\n")
+                f.write("    -1, 0\n")
                 f.write("  },\n")
 
             elif r["type"] == "action":
-                # inv = r.get("on_invoke") or "NULL"
                 inv = r.get("on_invoke") or "nullptr"
                 f.write(f"    {{ {{ {inv} }}, {{ VT_F32, NULL, 0, 0, 0, NULL, false }} }},\n")
                 f.write("    -1, 0\n")
@@ -623,13 +528,7 @@ def emit_menu_data_cpp(path, flat, lang_order, offsets):
 
         f.write("};\n")
 
-def emit_menu_bindings_h(path, flat):
-    binds = []
-    for it in flat:
-        r = it["raw"]
-        if r.get("bind"):
-            binds.append((r, it["scope"]))
-
+def emit_menu_bindings_h(path):
     h = []
     h.append("// AUTO-GENERATED. DO NOT EDIT.")
     h.append("#pragma once")
@@ -637,29 +536,25 @@ def emit_menu_bindings_h(path, flat):
     h.append("#include <stdbool.h>")
     h.append('#include "menu_types.h"')
     h.append('#include "menu_state.h"')
-    h.append('#include "menu_eeprom.h"')
     h.append("")
     h.append("typedef void (*MenuOnChangeFn)(void* ctx);")
     h.append("")
     h.append("typedef enum { SCOPE_GLOBAL=0, SCOPE_PER_CONTROLLER=1 } MenuScope;")
     h.append("")
     h.append("typedef struct {")
-    h.append("  uint16_t      id;         // MenuItem ID для отслеживания изменений")
-    h.append("  const char*   bind;")
+    h.append("  uint16_t      id;         // MENU_* enum ID")
+    h.append("  const char*   bind;       // NVS ключ (global) или префикс (per_controller)")
     h.append("  ValueType     vtype;")
-    h.append("  void*         ptr;        // ptr на глобальное поле или на [0] массива")
+    h.append("  void*         ptr;")
     h.append("  bool          persist;")
     h.append("  MenuOnChangeFn on_change;")
     h.append("  bool          apply_live;")
     h.append("  MenuScope     scope;")
-    h.append("  uint16_t      ee_base;    // базовый оффсет (global) или начало блока (per_controller)")
-    h.append("  uint16_t      ee_stride;  // 0 для global, size-of-type для per_controller")
     h.append("} MenuBinding;")
     h.append("")
     h.append("extern const MenuBinding g_bindings[];")
     h.append("extern const uint16_t     g_bindings_count;")
     h.append("")
-    h.append("// должен вернуть индекс активного контроллера [0..NUM_UNITS-1]; реализация находится в проекте")
     h.append("#ifdef __cplusplus")
     h.append('extern "C" {')
     h.append("#endif")
@@ -668,7 +563,6 @@ def emit_menu_bindings_h(path, flat):
     h.append("}")
     h.append("#endif")
     h.append("")
-    h.append("// Config change hook - вызывается после успешного применения любого изменения")
     h.append("typedef void (*ConfigChangeHookFn)(uint16_t itemId, uint8_t unit, const char* bind);")
     h.append("#ifdef __cplusplus")
     h.append('extern "C" {')
@@ -686,7 +580,7 @@ def emit_menu_bindings_h(path, flat):
     with open(path, "w", encoding="utf-8") as f:
         f.write('\n'.join(h))
 
-def emit_menu_bindings_cpp(path, flat, offsets):
+def emit_menu_bindings_cpp(path, flat):
     def vtype_enum(v):
         return {
             "float":"VT_F32","uint16":"VT_U16","uint8":"VT_U8",
@@ -702,27 +596,24 @@ def emit_menu_bindings_cpp(path, flat, offsets):
     cpp = []
     cpp.append("// AUTO-GENERATED. DO NOT EDIT.")
     cpp.append('#include <string.h>')
+    cpp.append('#include <stdio.h>')
     cpp.append('#include "menu_bindings.h"')
-    cpp.append('#include "menu_eeprom_io.h"')
+    cpp.append('#include "menu_nvs_io.h"')
     cpp.append("")
     cpp.append('#ifdef __cplusplus')
     cpp.append('extern "C" {')
     cpp.append('#endif')
     cpp.append("")
-
     declared_oc = set()
     for r, scope in binds:
         oc = r.get("on_change")
         if oc and oc not in declared_oc:
-            cpp.append(f'// forward decl for optional on_change')
-            cpp.append(f'void {oc}(void* ctx); // C++ linkage')
+            cpp.append(f'void {oc}(void* ctx);')
             declared_oc.add(oc)
-    if declared_oc:
-        cpp.append("#ifdef __cplusplus")
-        cpp.append("}")
-        cpp.append("#endif")
-        cpp.append("")
-
+    cpp.append("#ifdef __cplusplus")
+    cpp.append("}")
+    cpp.append("#endif")
+    cpp.append("")
 
     cpp.append("extern MenuState menu;")
     cpp.append("const MenuBinding g_bindings[] = {")
@@ -731,21 +622,12 @@ def emit_menu_bindings_cpp(path, flat, offsets):
         persist = "true" if r.get("persist") else "false"
         ocp = r.get("on_change") or "nullptr"
         al  = "true" if (r.get("apply","") == "live") else "false"
-        rid = r["id"]
-        if r.get("persist") and rid in offsets:
-            o = offsets[rid]
-            ee_base   = o["base"]
-            ee_stride = o["stride"]
-        else:
-            ee_base = 0
-            ee_stride = 0
         scope_enum = "SCOPE_GLOBAL" if scope=="global" else "SCOPE_PER_CONTROLLER"
-        menu_id_enum = f"MENU_{to_enum_id(rid)}"
-        cpp.append(f'  {{{menu_id_enum}, "{r["bind"]}", {ve}, (void*)&menu.{r["bind"]}, {persist}, {ocp}, {al}, {scope_enum}, {ee_base}, {ee_stride}}},')
+        menu_id_enum = f"MENU_{to_enum_id(r['id'])}"
+        cpp.append(f'  {{{menu_id_enum}, "{r["bind"]}", {ve}, (void*)&menu.{r["bind"]}, {persist}, {ocp}, {al}, {scope_enum}}},')
     cpp.append("};")
     cpp.append("const uint16_t g_bindings_count = sizeof(g_bindings)/sizeof(g_bindings[0]);")
     cpp.append("")
-    cpp.append("// Global config change hook")
     cpp.append("ConfigChangeHookFn g_config_change_hook = nullptr;")
     cpp.append("")
     cpp.append("void menu_set_config_change_hook(ConfigChangeHookFn hook) {")
@@ -781,10 +663,13 @@ def emit_menu_bindings_cpp(path, flat, offsets):
     cpp.append("  }")
     cpp.append("}")
     cpp.append("")
-    cpp.append("static inline uint16_t calc_eeprom_offset(const MenuBinding& b, uint8_t idx){")
-    cpp.append("  if (!b.persist) return 0;")
-    cpp.append("  if (b.scope == SCOPE_GLOBAL) return b.ee_base;")
-    cpp.append("  return (uint16_t)(b.ee_base + (uint16_t)idx * b.ee_stride);")
+    cpp.append("static inline void build_nvs_key(const MenuBinding& b, uint8_t idx, char* out, size_t cap){")
+    cpp.append("  if (b.scope == SCOPE_GLOBAL) {")
+    cpp.append("    strncpy(out, b.bind, cap - 1);")
+    cpp.append("    out[cap - 1] = '\\0';")
+    cpp.append("  } else {")
+    cpp.append("    snprintf(out, cap, \"%s_%u\", b.bind, (unsigned)idx);")
+    cpp.append("  }")
     cpp.append("}")
     cpp.append("")
     cpp.append("bool menu_read_by_bind(const char* bind, void* out_value) {")
@@ -803,14 +688,15 @@ def emit_menu_bindings_cpp(path, flat, offsets):
     cpp.append("  if (b->scope == SCOPE_PER_CONTROLLER) idx = menu_get_active_controller();")
     cpp.append("  store_value(*b, v, idx);")
     cpp.append("  if (b->persist) {")
-    cpp.append("    uint16_t ee = calc_eeprom_offset(*b, idx);")
+    cpp.append("    char key[16];")
+    cpp.append("    build_nvs_key(*b, idx, key, sizeof(key));")
     cpp.append("    switch (b->vtype) {")
-    cpp.append("      case VT_F32:  ee_store_field<float>(   ee, (b->scope==SCOPE_GLOBAL)? *(float*)b->ptr    : ((float*)b->ptr)[idx]); break;")
-    cpp.append("      case VT_U16:  ee_store_field<uint16_t>(ee, (b->scope==SCOPE_GLOBAL)? *(uint16_t*)b->ptr : ((uint16_t*)b->ptr)[idx]); break;")
-    cpp.append("      case VT_U8:   ee_store_field<uint8_t>( ee, (b->scope==SCOPE_GLOBAL)? *(uint8_t*)b->ptr  : ((uint8_t*)b->ptr)[idx]); break;")
-    cpp.append("      case VT_I32:  ee_store_field<int32_t>( ee, (b->scope==SCOPE_GLOBAL)? *(int32_t*)b->ptr  : ((int32_t*)b->ptr)[idx]); break;")
-    cpp.append("      case VT_BOOL: ee_store_field<bool>(    ee, (b->scope==SCOPE_GLOBAL)? *(bool*)b->ptr     : ((bool*)b->ptr)[idx]); break;")
-    cpp.append("      case VT_U32:  ee_store_field<uint32_t>(ee, (b->scope==SCOPE_GLOBAL)? *(uint32_t*)b->ptr : ((uint32_t*)b->ptr)[idx]); break;")
+    cpp.append("      case VT_F32:  ee_store_field<float>(   key, (b->scope==SCOPE_GLOBAL)? *(float*)b->ptr    : ((float*)b->ptr)[idx]); break;")
+    cpp.append("      case VT_U16:  ee_store_field<uint16_t>(key, (b->scope==SCOPE_GLOBAL)? *(uint16_t*)b->ptr : ((uint16_t*)b->ptr)[idx]); break;")
+    cpp.append("      case VT_U8:   ee_store_field<uint8_t>( key, (b->scope==SCOPE_GLOBAL)? *(uint8_t*)b->ptr  : ((uint8_t*)b->ptr)[idx]); break;")
+    cpp.append("      case VT_I32:  ee_store_field<int32_t>( key, (b->scope==SCOPE_GLOBAL)? *(int32_t*)b->ptr  : ((int32_t*)b->ptr)[idx]); break;")
+    cpp.append("      case VT_BOOL: ee_store_field<bool>(    key, (b->scope==SCOPE_GLOBAL)? *(bool*)b->ptr     : ((bool*)b->ptr)[idx]); break;")
+    cpp.append("      case VT_U32:  ee_store_field<uint32_t>(key, (b->scope==SCOPE_GLOBAL)? *(uint32_t*)b->ptr : ((uint32_t*)b->ptr)[idx]); break;")
     cpp.append("    }")
     cpp.append("  }")
     cpp.append("  if (b->on_change) b->on_change((void*)b->ptr);")
@@ -846,7 +732,6 @@ def emit_menu_callbacks_weak_cpp(path, flat):
         lines.append(f"void {name}(void) __attribute__((weak));")
         lines.append(f"void {name}(void) {{ /* stub */ }}")
 
-    # слабая заглушка активного контроллера
     lines.append("uint8_t menu_get_active_controller(void) __attribute__((weak));")
     lines.append("uint8_t menu_get_active_controller(void) { return 0; }")
 
@@ -857,9 +742,6 @@ def emit_menu_callbacks_weak_cpp(path, flat):
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-# ---------------------------
-# ДОПОЛНИТЕЛЬНО: генерация menu_presets_autogen.h
-# ---------------------------
 def emit_menu_presets_h(path, flat):
     lines = []
     lines.append("// AUTO-GENERATED. DO NOT EDIT.")
@@ -914,15 +796,7 @@ def emit_menu_presets_h(path, flat):
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-# ---------------------------
-# LINK: генерация menu_meta.h (только метаданные, без указателей)
-# ---------------------------
 def emit_menu_meta_h(path, flat, lang_order):
-    """
-    Генерирует menu_meta.h для ESP32 LINK.
-    Содержит только статические метаданные меню без указателей на данные и callback'и.
-    Используется для сборки JSON конфига из структуры + vals.
-    """
     lines = []
     lines.append("// Auto-generated for ESP32 LINK. Do not edit.")
     lines.append("// Contains menu metadata only (no pointers to data or callbacks).")
@@ -935,7 +809,6 @@ def emit_menu_meta_h(path, flat, lang_order):
     lines.append(f"#define MENU_LANG_COUNT {len(lang_order)}")
     lines.append("")
 
-    # Enum для типов
     lines.append("typedef enum {")
     lines.append("    META_SUBMENU = 0,")
     lines.append("    META_ACTION = 1,")
@@ -960,7 +833,6 @@ def emit_menu_meta_h(path, flat, lang_order):
     lines.append("} MenuMetaScope;")
     lines.append("")
 
-    # Структура метаданных
     lines.append("typedef struct {")
     lines.append(f"    uint16_t id;")
     lines.append(f"    const char* title[MENU_LANG_COUNT];")
@@ -969,7 +841,6 @@ def emit_menu_meta_h(path, flat, lang_order):
     lines.append("    int16_t parent;")
     lines.append("    int16_t first_child;")
     lines.append("    uint16_t child_count;")
-    lines.append("    // Value/Toggle fields (ignored for submenu/action)")
     lines.append("    MenuMetaValueType vtype;")
     lines.append("    float min_val;")
     lines.append("    float max_val;")
@@ -978,7 +849,6 @@ def emit_menu_meta_h(path, flat, lang_order):
     lines.append("} MenuMeta;")
     lines.append("")
 
-    # Массив данных
     lines.append("static const MenuMeta g_menu_meta[MENU_META_COUNT] = {")
 
     meta_types = {"submenu": "META_SUBMENU", "action": "META_ACTION", "value": "META_VALUE", "toggle": "META_TOGGLE"}
@@ -988,19 +858,12 @@ def emit_menu_meta_h(path, flat, lang_order):
     for i, fn in enumerate(flat):
         r = fn["raw"]
         scope = fn.get("scope", "per_controller")
-
-        # Titles and units
         titles, units = node_title_unit_arrays(r, lang_order)
-
-        # Type
         mtype = meta_types.get(r["type"], "META_SUBMENU")
-
-        # Parent/children
         parent = fn["parent"]
         first_child = fn["first_child"]
         child_count = fn["child_count"]
 
-        # Value fields
         if r["type"] in ("value", "toggle"):
             vtype = r.get("vtype") or ("bool" if r["type"] == "toggle" else "float")
             mvtype = meta_vtypes.get(vtype, "META_VT_F32")
@@ -1023,8 +886,6 @@ def emit_menu_meta_h(path, flat, lang_order):
     lines.append("};")
     lines.append("")
 
-    # Helper функции
-    lines.append("// Get menu item by id")
     lines.append("static inline const MenuMeta* menu_meta_get(uint16_t id) {")
     lines.append("    if (id < MENU_META_COUNT) return &g_menu_meta[id];")
     lines.append("    return nullptr;")
@@ -1034,17 +895,9 @@ def emit_menu_meta_h(path, flat, lang_order):
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-# ---------------------------
-# LINK: генерация menu_cache.h (кэш значений для ESP32)
-# ---------------------------
 def emit_menu_cache_h(path, flat, num_units):
-    """
-    Генерирует menu_cache.h для ESP32 LINK.
-    Содержит структуру для хранения текущих значений меню.
-    """
     lines = []
     lines.append("// Auto-generated for ESP32 LINK. Do not edit.")
-    lines.append("// Contains menu value cache (current values from MCU).")
     lines.append("#pragma once")
     lines.append("")
     lines.append("#include <stdint.h>")
@@ -1054,14 +907,10 @@ def emit_menu_cache_h(path, flat, num_units):
     lines.append(f"#define MENU_MAX_UNITS {num_units}")
     lines.append("")
 
-    # Считаем сколько элементов с значениями (value/toggle)
     value_count = sum(1 for fn in flat if fn["raw"]["type"] in ("value", "toggle"))
-
     lines.append(f"// Total menu items: {len(flat)}, with values: {value_count}")
     lines.append("")
 
-    # Структура MenuValue - хранит одно значение
-    lines.append("// Значение одного элемента меню")
     lines.append("union MenuValue {")
     lines.append("    float    f32;")
     lines.append("    uint32_t u32;")
@@ -1072,20 +921,15 @@ def emit_menu_cache_h(path, flat, num_units):
     lines.append("};")
     lines.append("")
 
-    # Основная структура кэша
-    lines.append("// Кэш значений меню для LINK")
     lines.append("class MenuCache {")
     lines.append("public:")
-    lines.append("    uint16_t revision = 0;       // Ревизия конфига от MCU")
-    lines.append("    uint8_t  active_unit = 0;    // Активный юнит (0..units_count-1)")
-    lines.append("    uint8_t  units_count = 1;    // Количество юнитов")
-    lines.append("    uint8_t  lang = 0;           // Текущий язык (0=ru, 1=en)")
+    lines.append("    uint16_t revision = 0;")
+    lines.append("    uint8_t  active_unit = 0;")
+    lines.append("    uint8_t  units_count = 1;")
+    lines.append("    uint8_t  lang = 0;")
     lines.append("")
-    lines.append("    // Значения: [menu_id][unit_index]")
-    lines.append("    // Для global элементов используется только [id][0]")
     lines.append("    MenuValue values[MENU_META_COUNT][MENU_MAX_UNITS] = {};")
     lines.append("")
-    lines.append("    // Получить значение как float")
     lines.append("    float getFloat(uint16_t id, uint8_t unit = 255) const {")
     lines.append("        if (id >= MENU_META_COUNT) return 0.0f;")
     lines.append("        const MenuMeta* m = &g_menu_meta[id];")
@@ -1104,7 +948,6 @@ def emit_menu_cache_h(path, flat, num_units):
     lines.append("        }")
     lines.append("    }")
     lines.append("")
-    lines.append("    // Установить значение из float")
     lines.append("    void setFloat(uint16_t id, float val, uint8_t unit = 255) {")
     lines.append("        if (id >= MENU_META_COUNT) return;")
     lines.append("        const MenuMeta* m = &g_menu_meta[id];")
@@ -1123,22 +966,16 @@ def emit_menu_cache_h(path, flat, num_units):
     lines.append("        }")
     lines.append("    }")
     lines.append("")
-    lines.append("    // Получить bool значение")
     lines.append("    bool getBool(uint16_t id, uint8_t unit = 255) const {")
     lines.append("        return getFloat(id, unit) != 0.0f;")
     lines.append("    }")
-    lines.append("")
-    lines.append("    // Получить int значение")
     lines.append("    int32_t getInt(uint16_t id, uint8_t unit = 255) const {")
     lines.append("        return (int32_t)getFloat(id, unit);")
     lines.append("    }")
-    lines.append("")
-    lines.append("    // Геттеры для lang и units_count")
     lines.append("    uint8_t getLang() const { return lang; }")
     lines.append("    uint8_t getUnitsCount() const { return units_count; }")
     lines.append("};")
     lines.append("")
-    lines.append("// Глобальный экземпляр кэша")
     lines.append("extern MenuCache g_menu_cache;")
     lines.append("")
 
@@ -1146,17 +983,12 @@ def emit_menu_cache_h(path, flat, num_units):
         f.write("\n".join(lines))
 
 def emit_menu_cache_cpp(path):
-    """
-    Генерирует menu_cache.cpp - определение глобального экземпляра кэша.
-    """
     lines = []
     lines.append("// Auto-generated for ESP32 LINK. Do not edit.")
     lines.append('#include "menu_cache.h"')
     lines.append("")
-    lines.append("// Глобальный экземпляр кэша значений меню")
     lines.append("MenuCache g_menu_cache;")
     lines.append("")
-
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
@@ -1166,11 +998,16 @@ def emit_menu_cache_cpp(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("yaml_path", help="menu.yaml")
-    ap.add_argument("--out", default=os.path.dirname(os.path.dirname(__file__)), help="output dir (menu/)")
-    ap.add_argument("--magic", type=lambda x:int(x,0), default=0x4D4E5551, help="EE magic (default 0x4D4E5551)")
-    ap.add_argument("--version", type=int, default=1, help="EE version int (default); major читается из version.h VERSION_MAJOR")
-    ap.add_argument("--num-units", type=int, default=3, help="Количество контроллеров (NUM_UNITS)")
+    ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"), help="output dir (default: lib/idryer-menu/src/)")
+    ap.add_argument("--magic", type=lambda x:int(x,0), default=0x4D4E5551, help="NVS magic (default 0x4D4E5551)")
+    ap.add_argument("--version", type=int, default=1, help="NVS version int (default); major читается из version.h VERSION_MAJOR")
+    ap.add_argument("--num-units", type=int, default=1, help="Количество контроллеров (NUM_UNITS)")
+    ap.add_argument("--namespace", default="iheater-menu", help="NVS namespace (default: iheater-menu)")
     args = ap.parse_args()
+
+    if len(args.namespace) > 15:
+        print(f"ERROR: --namespace '{args.namespace}' > 15 символов (лимит NVS).", file=sys.stderr)
+        sys.exit(1)
 
     with open(args.yaml_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
@@ -1180,7 +1017,7 @@ def main():
     lang_order = infer_lang_order(langs)
 
     flat = flatten(roots, -1, [])
-    offsets, total = eeprom_layout(flat, args.num_units)
+    validate_binds(flat)
 
     outdir = args.out
     os.makedirs(outdir, exist_ok=True)
@@ -1189,35 +1026,31 @@ def main():
     emit_menu_types_h(os.path.join(outdir,"menu_types.h"))
 
     ee_major = read_version_major(default=args.version)
-    emit_menu_eeprom_h(os.path.join(outdir,"menu_eeprom.h"), flat, offsets, total, args.magic, ee_major, args.num_units)
-    
+    emit_menu_nvs_h(os.path.join(outdir,"menu_nvs.h"), args.namespace, args.magic, ee_major)
+
     emit_menu_state_h(os.path.join(outdir,"menu_state.h"), flat, args.num_units)
-    emit_menu_state_cpp(os.path.join(outdir,"menu_state.cpp"), flat, offsets)
+    emit_menu_state_cpp(os.path.join(outdir,"menu_state.cpp"), flat)
 
-    emit_menu_eeprom_io(os.path.join(outdir,"menu_eeprom_io.h"), os.path.join(outdir,"menu_eeprom_io.cpp"))
-    emit_menu_data_cpp(os.path.join(outdir,"menu_data.cpp"), flat, lang_order, offsets)
+    emit_menu_nvs_io(os.path.join(outdir,"menu_nvs_io.h"), os.path.join(outdir,"menu_nvs_io.cpp"))
+    emit_menu_data_cpp(os.path.join(outdir,"menu_data.cpp"), flat, lang_order)
 
-    emit_menu_bindings_h(os.path.join(outdir,"menu_bindings.h"), flat)
-    emit_menu_bindings_cpp(os.path.join(outdir,"menu_bindings.cpp"), flat, offsets)
+    emit_menu_bindings_h(os.path.join(outdir,"menu_bindings.h"))
+    emit_menu_bindings_cpp(os.path.join(outdir,"menu_bindings.cpp"), flat)
     emit_menu_callbacks_weak_cpp(os.path.join(outdir, "menu_callbacks_weak.cpp"), flat)
 
     emit_menu_presets_h(os.path.join(outdir, "menu_presets_autogen.h"), flat)
 
-    # LINK: menu_meta.h (только метаданные для ESP32)
     emit_menu_meta_h(os.path.join(outdir, "menu_meta.h"), flat, lang_order)
-
-    # LINK: menu_cache.h/.cpp (кэш значений для ESP32)
     emit_menu_cache_h(os.path.join(outdir, "menu_cache.h"), flat, args.num_units)
     emit_menu_cache_cpp(os.path.join(outdir, "menu_cache.cpp"))
 
-    print(f"Generated in {outdir}:")
-    print("  menu_ids.h, menu_types.h, menu_eeprom.h, menu_state.h/.cpp, menu_eeprom_io.h/.cpp, menu_data.cpp,")
-    print("  menu_bindings.h/.cpp, menu_callbacks_weak.cpp, menu_presets_autogen.h")
-    print("  menu_meta.h, menu_cache.h (LINK)")
-    print(f"EEPROM total size: {total} bytes (incl. {EE_SYS_AREA_SIZE} bytes for SYS AREA)")
-    # print(f"EEPROM total size: {total} bytes (incl. SYS={EE_SYS_AREA_SIZE}, ERRLOG={ERRLOG_HDR_SIZE + ERRLOG_REC_SIZE * ERRLOG_CAP})")
-    print(f"EEPROM total size: {total} bytes (incl. SYS={EE_SYS_AREA_SIZE + EE_SYS_CAL_SIZE +  EE_SCALE_TEMP_SIZE}, ERRLOG={ERRLOG_HDR_SIZE + ERRLOG_REC_SIZE * ERRLOG_CAP})")
-    print(f"NUM_UNITS = {args.num_units}; scope: global/per_controller; SKIP_PERSIST_IDS = {sorted(SKIP_PERSIST_IDS)}")
+    print(f"Generated in {outdir} (NVS backend):")
+    print("  menu_ids.h, menu_types.h, menu_nvs.h, menu_nvs_io.h/.cpp,")
+    print("  menu_state.h/.cpp, menu_data.cpp,")
+    print("  menu_bindings.h/.cpp, menu_callbacks_weak.cpp, menu_presets_autogen.h,")
+    print("  menu_meta.h, menu_cache.h/.cpp (LINK)")
+    print(f"NVS namespace: '{args.namespace}'  MAGIC=0x{args.magic:08X}  VERSION={ee_major}")
+    print(f"NUM_UNITS = {args.num_units}; scope: global/per_controller")
 
 if __name__ == "__main__":
     main()

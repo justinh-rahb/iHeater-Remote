@@ -120,16 +120,6 @@ python3 read_serial.py
 - Исправлен маппинг имен плат (esp32c3-super-mini остается с дефисами)
 - Улучшенные логи с индикацией успеха
 
-### extra_scripts/copy_menu.py  
-**Назначение:** Pre-build скрипт для синхронизации menu файлов с RP2040  
-**Статус:** ✅ Актуален
-
-**Функции:**
-- Копирует menu_meta.h, menu_ids.h, menu_cache.h/cpp из RP2040 проекта
-- Копирует version.h для синхронизации версий
-- Создает library.json для lib/idryer-menu
-- Поддержка симлинков и кэширования
-
 ---
 
 ## 📋 Использование
@@ -171,6 +161,6 @@ python3 tools/test_uart_rp2040_emulator.py /dev/ttyUSB0
 | mock_portal.py | ✅ Актуален | HTTP API | Проверен |
 | read_serial.py | ✅ Актуален | Serial | Проверен |
 | copy_firmware.py | ✅ Актуален | Build | Проверен |
-| copy_menu.py | ✅ Актуален | Build | Проверен |
+
 
 Все инструменты синхронизированы с текущим протоколом lib/idryer-protocol версии 1.
