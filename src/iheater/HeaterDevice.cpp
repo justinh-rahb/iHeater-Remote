@@ -61,14 +61,21 @@ namespace iheaterlink
                 upper[i] = (char)toupper((unsigned char)trayType[i]);
             upper[i] = '\0';
 
-            if (strncmp(upper, "PETG", 4) == 0) return menu.mat_petg;
-            if (strncmp(upper, "PLA", 3)  == 0) return menu.mat_pla;
-            if (strncmp(upper, "ABS", 3)  == 0) return menu.mat_abs;
-            if (strncmp(upper, "ASA", 3)  == 0) return menu.mat_asa;
-            if (strncmp(upper, "PC", 2)   == 0) return menu.mat_pc;
+            if (strncmp(upper, "PETG", 4) == 0)
+                return menu.mat_petg;
+            if (strncmp(upper, "PLA", 3) == 0)
+                return menu.mat_pla;
+            if (strncmp(upper, "ABS", 3) == 0)
+                return menu.mat_abs;
+            if (strncmp(upper, "ASA", 3) == 0)
+                return menu.mat_asa;
+            if (strncmp(upper, "PC", 2) == 0)
+                return menu.mat_pc;
             // PA, PA-CF, PAHT, NYLON — всё в колонку PA/NYLON.
-            if (strncmp(upper, "PA", 2)   == 0) return menu.mat_pa;
-            if (strncmp(upper, "NYLON", 5) == 0) return menu.mat_pa;
+            if (strncmp(upper, "PA", 2) == 0)
+                return menu.mat_pa;
+            if (strncmp(upper, "NYLON", 5) == 0)
+                return menu.mat_pa;
 
             // Неизвестный материал — не греем.
             return 0.0f;
@@ -141,9 +148,11 @@ namespace iheaterlink
 
         // Колбэки из менеджера → локальное применение на pulse output.
         integrations_.setVirtualChamberCallback(
-            [this](const cloud::VirtualChamberData &data) { onVirtualChamberUpdate(data); });
+            [this](const cloud::VirtualChamberData &data)
+            { onVirtualChamberUpdate(data); });
         integrations_.setBambuPrinterStatusCallback(
-            [this](const cloud::BambuPrinterStatus &status) { onBambuPrinterStatusUpdate(status); });
+            [this](const cloud::BambuPrinterStatus &status)
+            { onBambuPrinterStatusUpdate(status); });
 
         integrationsStore_.begin();
         integrations_.begin();
@@ -155,7 +164,8 @@ namespace iheaterlink
         // Выбор активного ПОДКЛЮЧЕНИЯ из меню (bambu_en/moon_en/ha_en) транслируется
         // в LinkIntegrationsManager::setActive — без этого Moonraker/Bambu клиент
         // не запустится даже при `enabled:true` в link_integration.
-        menuBridge_.setActiveConnectionCallback([this](ActiveConnection kind) {
+        menuBridge_.setActiveConnectionCallback([this](ActiveConnection kind)
+                                                {
             using AI = idryer::cloud::ActiveIntegration;
             AI target = AI::None;
             switch (kind) {
@@ -165,8 +175,7 @@ namespace iheaterlink
                 case ActiveConnection::None:      target = AI::None; break;
             }
             HAL_LOG_INFO("HEATER", "Menu→setActive: %d", (int)target);
-            integrations_.setActive(target);
-        });
+            integrations_.setActive(target); });
 
         menuBridge_.begin();
 
@@ -188,13 +197,13 @@ namespace iheaterlink
 
     void HeaterDevice::startRmtSweep()
     {
-        const auto& cfg = controllerOutput_.getConfig();
-        const int step  = cfg.stepTempC > 0 ? cfg.stepTempC : 1;
+        const auto &cfg = controllerOutput_.getConfig();
+        const int step = cfg.stepTempC > 0 ? cfg.stepTempC : 1;
         const int count = (cfg.maxTempC - cfg.minTempC) / step + 1;
-        sweepStepMs_ = 5000u / (count > 1 ? (uint32_t)count : 1u);
+        sweepStepMs_ = 30000u / (count > 1 ? (uint32_t)count : 1u);
 
-        sweepIdx_    = 0;
-        sweepDir_    = 1;
+        sweepIdx_ = 0;
+        sweepDir_ = 1;
         sweepLastMs_ = millis();
         sweepActive_ = true;
         HAL_LOG_INFO("HEATER", "RMT sweep started: %d steps, %ums/step", count, sweepStepMs_);
@@ -212,12 +221,13 @@ namespace iheaterlink
 
     void HeaterDevice::sweepStep()
     {
-        const auto& cfg = controllerOutput_.getConfig();
-        const int step  = cfg.stepTempC > 0 ? cfg.stepTempC : 1;
+        const auto &cfg = controllerOutput_.getConfig();
+        const int step = cfg.stepTempC > 0 ? cfg.stepTempC : 1;
         const int count = (cfg.maxTempC - cfg.minTempC) / step + 1;
 
         const uint32_t now = millis();
-        if (now - sweepLastMs_ < sweepStepMs_) return;
+        if (now - sweepLastMs_ < sweepStepMs_)
+            return;
         sweepLastMs_ = now;
 
         const float temp = cfg.minTempC + sweepIdx_ * step;
@@ -232,8 +242,16 @@ namespace iheaterlink
                      temp, controllerOutput_.getLastPulseCode());
 
         sweepIdx_ += sweepDir_;
-        if (sweepIdx_ >= count) { sweepIdx_ = count - 2; sweepDir_ = -1; }
-        if (sweepIdx_ < 0)      { sweepIdx_ = 1;         sweepDir_ =  1; }
+        if (sweepIdx_ >= count)
+        {
+            sweepIdx_ = count - 2;
+            sweepDir_ = -1;
+        }
+        if (sweepIdx_ < 0)
+        {
+            sweepIdx_ = 1;
+            sweepDir_ = 1;
+        }
     }
 
     void HeaterDevice::loop()
@@ -242,7 +260,11 @@ namespace iheaterlink
         integrations_.loop();
         controllerOutput_.loop();
 
-        if (sweepActive_) { sweepStep(); return; }
+        if (sweepActive_)
+        {
+            sweepStep();
+            return;
+        }
 
         if (cloud_.isOnline())
         {
@@ -268,11 +290,13 @@ namespace iheaterlink
     {
         // Меню портала: перехватываем до CommandHandler — тот пытается слать на UART-MCU,
         // которого на iHeater Link нет (см. LinkCommandSink::GetConfig / SetConfig).
-        if (command && strcmp(command, "get_config") == 0) {
+        if (command && strcmp(command, "get_config") == 0)
+        {
             menuBridge_.publishFullConfig();
             return;
         }
-        if (command && strcmp(command, "set") == 0) {
+        if (command && strcmp(command, "set") == 0)
+        {
             menuBridge_.applySetCommand(data);
             return;
         }
@@ -465,9 +489,12 @@ namespace iheaterlink
         // humidity: 0 — на iHeater Link нет датчика влажности.
         // heaterPower: 0/100 как намерение ESP, реальную мощность STM32 не отдаёт.
         float chamberTemp = 0.0f;
-        if (ms.chamberHasSensor && ms.chamberTemperature > 0.0f) {
+        if (ms.chamberHasSensor && ms.chamberTemperature > 0.0f)
+        {
             chamberTemp = ms.chamberTemperature;
-        } else if (bs.chamberTemp > 0.0f) {
+        }
+        else if (bs.chamberTemp > 0.0f)
+        {
             chamberTemp = bs.chamberTemp;
         }
         JsonArray units = doc.createNestedArray("units");

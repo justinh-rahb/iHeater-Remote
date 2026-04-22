@@ -6,7 +6,7 @@ Post-build script: копирует firmware + bootloader + partitions + boot_ap
 
 ПУТИ НАЗНАЧЕНИЯ:
 1. Локальная папка: firmware/<board>/
-2. Flasher Portal: /Users/ruslanpavlucenko/Projects/iDryerPortal/flasher-portal/firmware/link/<slot>/<board>/
+2. Flasher Portal: /Users/ruslanpavlucenko/Projects/iDryerPortal/flasher-portal/firmware/heater-link/<slot>/<board>/
 
 МАППИНГ ПЛАТ:
 - esp32c3-prod → esp32c3 (flasher-portal)
@@ -78,7 +78,7 @@ def copy_firmware(source, target, env):
     if portal_root:
         pr = Path(portal_root)
         if pr.is_dir():
-            flasher_firmware_base = pr / "firmware" / "link"
+            flasher_firmware_base = pr / "firmware" / "heater-link"
         else:
             print(
                 f"  {YELLOW}[FIRMWARE] WARNING: IDRYER_FLASHER_PORTAL_PATH is not a directory: "
