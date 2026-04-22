@@ -165,8 +165,8 @@ Credentials для staging-аккаунта запросите у [@pavluchenkor
 - В логе `[MQTT] Connection failed: 5` = auth rejected, попробуй стереть NVS и заново
 
 ### Auto-claim: "No PIN received"
-- RP2040 не подключен -- serial number приходит от MCU по UART
-- Используй эмулятор: `python3 tools/emulate_controller.py --port /dev/ttyUSB0`
+- Прошивка ещё не успела вывести `CLAIM_PIN:<pin>:<expires>` в Serial — подожди несколько секунд после загрузки.
+- Убедись, что `upload_port` / `monitor_port` в `platformio.ini` указывает на реально подключённое устройство.
 
 ### Staging недоступен
 Staging пересобирается автоматически при каждом push в master.
