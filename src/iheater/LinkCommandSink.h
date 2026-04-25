@@ -2,7 +2,7 @@
 
 #include <cloud/command_sink.h>
 
-#include "controller/IControllerOutputAdapter.h"
+#include "controller/RmtOutputAdapter.h"
 
 namespace iheaterlink {
 
@@ -22,7 +22,7 @@ namespace iheaterlink {
  */
 class LinkCommandSink : public idryer::cloud::ICommandSink {
 public:
-    explicit LinkCommandSink(IControllerOutputAdapter* output)
+    explicit LinkCommandSink(RmtOutputAdapter* output)
         : output_(output) {}
 
     void sendCommand(const DryerUart::CommandPayload& payload, bool ackRequired) override;
@@ -31,8 +31,13 @@ public:
                              uint8_t dataLen,
                              uint8_t flags) override;
 
+    /// Периодический тик: если deadline drying-команды истёк — применяет Off.
+    /// Вызывать из main loop (granularity ~1 итерация loop'а, точность до секунды ОК).
+    void tick();
+
 private:
-    IControllerOutputAdapter* output_;
+    RmtOutputAdapter* output_;
+    uint32_t deadlineMs_ = 0;  // 0 = таймер неактивен
 };
 
 } // namespace iheaterlink

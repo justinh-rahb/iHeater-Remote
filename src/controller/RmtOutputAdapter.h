@@ -2,8 +2,10 @@
 
 #include <Arduino.h>
 #include <driver/rmt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
-#include "IControllerOutputAdapter.h"
+#include "ControllerOutputCommand.h"
 
 namespace iheaterlink
 {
@@ -27,21 +29,20 @@ namespace iheaterlink
         uint32_t framePeriodMs = 1000;
     };
 
-    class RmtOutputAdapter : public IControllerOutputAdapter
+    class RmtOutputAdapter
     {
     public:
         explicit RmtOutputAdapter(const RmtOutputConfig &config)
             : config_(config) {}
 
-        void begin() override;
-        void loop() override;
-        void apply(const ControllerOutputCommand &command) override;
-        ControllerOutputCommand getLastCommand() const override;
+        void begin();
+        void apply(const ControllerOutputCommand &command);
+        ControllerOutputCommand getLastCommand() const;
 
         uint8_t getLastPulseCode() const { return lastPulseCode_; }
         bool isEnabled() const { return config_.outputPin != 0xFF && initialized_; }
         void forceFrame();
-        const RmtOutputConfig& getConfig() const { return config_; }
+        const RmtOutputConfig &getConfig() const { return config_; }
 
     private:
         static constexpr size_t MAX_ITEMS = 128;
@@ -50,16 +51,22 @@ namespace iheaterlink
         void rebuildFrame(uint8_t pulseCode);
         void sendFrame();
 
+        static void rmtTaskEntry(void *arg);
+        void rmtTaskLoop();
+
         RmtOutputConfig config_;
         ControllerOutputCommand lastCommand_{};
-        uint8_t lastPulseCode_ = 10;
+        volatile uint8_t lastPulseCode_ = 10;
         uint8_t builtForCode_ = 0xFF;
         bool initialized_ = false;
 
         rmt_item32_t items_[MAX_ITEMS]{};
         size_t itemCount_ = 0;
 
-        uint32_t lastFrameMs_ = 0;
+        uint32_t lastSentMs_ = 0;
+        uint32_t seqNum_ = 0;
+
+        TaskHandle_t rmtTask_ = nullptr;
     };
 
 } // namespace iheaterlink
