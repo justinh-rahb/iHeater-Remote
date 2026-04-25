@@ -55,12 +55,14 @@ void LinkCommandSink::sendCommand(const DryerUart::CommandPayload& payload, bool
     }
 }
 
+// Обязательный метод ICommandSink — на iHeater не применим.
 void LinkCommandSink::sendProfileCommand(const DryerUart::ProfilePayload& /*payload*/,
                                          bool /*ackRequired*/)
 {
     HAL_LOG_DEBUG("LINKSINK", "Profile cmd: not applicable on IHeaterLink");
 }
 
+// Обязательный метод ICommandSink — на iHeater не применим.
 void LinkCommandSink::sendConfigPushChunk(const DryerUart::ConfigChunkPayload& /*payload*/,
                                           uint8_t /*dataLen*/,
                                           uint8_t /*flags*/)
