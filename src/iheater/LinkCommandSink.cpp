@@ -1,5 +1,6 @@
 #include "iheater/LinkCommandSink.h"
 
+#include <Arduino.h>
 #include <hal/hal_types.h>
 
 namespace iheaterlink {
@@ -23,7 +24,16 @@ void LinkCommandSink::sendCommand(const DryerUart::CommandPayload& payload, bool
         cmd.targetTempC = targetTempC;
         output_->apply(cmd);
 
-        HAL_LOG_INFO("LINKSINK", "Start applied: target=%.1fC", targetTempC);
+        // arg1 = duration в минутах. 0 = бесконечно (таймер выключен).
+        if (payload.arg1 > 0) {
+            deadlineMs_ = millis() + static_cast<uint32_t>(payload.arg1) * 60UL * 1000UL;
+            HAL_LOG_INFO("LINKSINK", "Start applied: target=%.1fC duration=%umin",
+                         targetTempC, (unsigned)payload.arg1);
+        } else {
+            deadlineMs_ = 0;
+            HAL_LOG_INFO("LINKSINK", "Start applied: target=%.1fC duration=infinite",
+                         targetTempC);
+        }
         break;
     }
 
@@ -32,25 +42,11 @@ void LinkCommandSink::sendCommand(const DryerUart::CommandPayload& payload, bool
         cmd.mode = ControllerOutputMode::Off;
         cmd.targetTempC = 0.0f;
         output_->apply(cmd);
+        deadlineMs_ = 0;
 
         HAL_LOG_INFO("LINKSINK", "Stop applied: output = Off");
         break;
     }
-
-    case CC::Find:
-        HAL_LOG_INFO("LINKSINK", "Find: not implemented (no LED on IHeaterLink)");
-        break;
-
-    case CC::GetConfig:
-    case CC::SetConfig:
-        HAL_LOG_INFO("LINKSINK", "Config cmd 0x%02X: not implemented on IHeaterLink yet",
-                     static_cast<unsigned>(payload.command));
-        break;
-
-    case CC::ReadRfid:
-    case CC::WriteRfid:
-        HAL_LOG_DEBUG("LINKSINK", "RFID cmd: not applicable on IHeaterLink");
-        break;
 
     default:
         HAL_LOG_DEBUG("LINKSINK", "Cmd 0x%02X: not applicable on IHeaterLink",
@@ -70,6 +66,22 @@ void LinkCommandSink::sendConfigPushChunk(const DryerUart::ConfigChunkPayload& /
                                           uint8_t /*flags*/)
 {
     HAL_LOG_DEBUG("LINKSINK", "Config push chunk: not applicable on IHeaterLink");
+}
+
+void LinkCommandSink::tick()
+{
+    if (deadlineMs_ == 0 || output_ == nullptr) return;
+
+    // Сравнение со знаком: корректно при wrap'е millis() (49.7 дней).
+    if (static_cast<int32_t>(millis() - deadlineMs_) < 0) return;
+
+    ControllerOutputCommand cmd{};
+    cmd.mode = ControllerOutputMode::Off;
+    cmd.targetTempC = 0.0f;
+    output_->apply(cmd);
+    deadlineMs_ = 0;
+
+    HAL_LOG_INFO("LINKSINK", "Duration expired: output = Off");
 }
 
 } // namespace iheaterlink
