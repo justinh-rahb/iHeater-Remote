@@ -304,6 +304,30 @@ namespace iheaterlink
             return;
         }
 
+        // link_integration с enabled:true — переключить активное подключение в меню.
+        // Это вызовет disableOtherConnections + setActive через MenuBridge колбэк.
+        if (command && strcmp(command, "link_integration") == 0)
+        {
+            const char *type = data["type"] | (const char *)nullptr;
+            const bool enabled = data["enabled"] | false;
+            if (type && enabled)
+            {
+                const char *bind = nullptr;
+                if (strcmp(type, "moonraker") == 0) bind = "moon_en";
+                else if (strcmp(type, "bambu") == 0)     bind = "bambu_en";
+                else if (strcmp(type, "ha") == 0)        bind = "ha_en";
+
+                if (bind)
+                {
+                    StaticJsonDocument<32> doc;
+                    doc["bind"] = bind;
+                    doc["val"] = true;
+                    menuBridge_.applySetCommand(doc.as<JsonObjectConst>());
+                    HAL_LOG_INFO("HEATER", "link_integration: switched active to %s", type);
+                }
+            }
+        }
+
         // Все остальные команды (drying/stop/link_integration/bambu_apply/...) идут через
         // CommandHandler. CommandHandler сам маршрутизирует link_integration/bambu_apply
         // в LinkIntegrationsManager, остальное — в LinkCommandSink.
