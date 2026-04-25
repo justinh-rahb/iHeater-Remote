@@ -304,8 +304,14 @@ namespace iheaterlink
             return;
         }
 
+        // Все остальные команды (drying/stop/link_integration/bambu_apply/...) идут через
+        // CommandHandler. CommandHandler сам маршрутизирует link_integration/bambu_apply
+        // в LinkIntegrationsManager, остальное — в LinkCommandSink.
+        cmdHandler_.handleMqttCommand(command, data);
+
         // link_integration с enabled:true — переключить активное подключение в меню.
-        // Это вызовет disableOtherConnections + setActive через MenuBridge колбэк.
+        // Вызываем ПОСЛЕ cmdHandler_, чтобы новый конфиг (host/port) уже был сохранён
+        // до того как setActive запустит клиента.
         if (command && strcmp(command, "link_integration") == 0)
         {
             const char *type = data["type"] | (const char *)nullptr;
@@ -313,9 +319,9 @@ namespace iheaterlink
             if (type && enabled)
             {
                 const char *bind = nullptr;
-                if (strcmp(type, "moonraker") == 0) bind = "moon_en";
-                else if (strcmp(type, "bambu") == 0)     bind = "bambu_en";
-                else if (strcmp(type, "ha") == 0)        bind = "ha_en";
+                if (strcmp(type, "moonraker") == 0)  bind = "moon_en";
+                else if (strcmp(type, "bambu") == 0) bind = "bambu_en";
+                else if (strcmp(type, "ha") == 0)    bind = "ha_en";
 
                 if (bind)
                 {
@@ -327,11 +333,6 @@ namespace iheaterlink
                 }
             }
         }
-
-        // Все остальные команды (drying/stop/link_integration/bambu_apply/...) идут через
-        // CommandHandler. CommandHandler сам маршрутизирует link_integration/bambu_apply
-        // в LinkIntegrationsManager, остальное — в LinkCommandSink.
-        cmdHandler_.handleMqttCommand(command, data);
     }
 
     // Внешняя команда (WebSocket/WebSerial) — проксируется в тот же обработчик что и MQTT.
