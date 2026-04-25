@@ -195,6 +195,7 @@ namespace iheaterlink
     // ГЛАВНЫЙ ЦИКЛ
     // =============================================================================
 
+    // Запустить тестовый sweep: пройти весь диапазон температур вверх-вниз за 30 секунд.
     void HeaterDevice::startRmtSweep()
     {
         const auto &cfg = controllerOutput_.getConfig();
@@ -209,6 +210,7 @@ namespace iheaterlink
         HAL_LOG_INFO("HEATER", "RMT sweep started: %d steps, %ums/step", count, sweepStepMs_);
     }
 
+    // Остановить sweep и выставить выход в Off.
     void HeaterDevice::stopRmtSweep()
     {
         sweepActive_ = false;
@@ -219,6 +221,7 @@ namespace iheaterlink
         HAL_LOG_INFO("HEATER", "RMT sweep stopped");
     }
 
+    // Один шаг sweep: применить следующую температуру и переключить направление на границах.
     void HeaterDevice::sweepStep()
     {
         const auto &cfg = controllerOutput_.getConfig();
@@ -258,7 +261,7 @@ namespace iheaterlink
     {
         cloud_.loop();
         integrations_.loop();
-        controllerOutput_.loop();
+        linkSink_.tick();
 
         if (sweepActive_)
         {
@@ -307,6 +310,7 @@ namespace iheaterlink
         cmdHandler_.handleMqttCommand(command, data);
     }
 
+    // Внешняя команда (WebSocket/WebSerial) — проксируется в тот же обработчик что и MQTT.
     void HeaterDevice::handleExternalCommand(const char *command, JsonObjectConst data)
     {
         handleMqttCommand(command, data);

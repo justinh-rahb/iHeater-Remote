@@ -45,8 +45,9 @@ namespace
     Preferences preferences;
     ImprovWiFi improvSerial(&Serial);
     bool wifiConfigured = false;
-    bool logsEnabled = false;
+    bool logsEnabled = false; // Wi-Fi уже подключён и Serial отдан под логи
 
+    // Сохранить SSID/пароль в NVS (Preferences namespace "wifi").
     void saveWiFiCredentials(const char *ssid, const char *password)
     {
         preferences.begin("wifi", false);
@@ -57,6 +58,7 @@ namespace
         DEBUG_LOG("[IMPROV] WiFi credentials saved\n");
     }
 
+    // Прочитать SSID/пароль из NVS. Возвращает false если ничего не сохранено.
     bool loadWiFiCredentials(String &ssid, String &password)
     {
         preferences.begin("wifi", true);
@@ -80,6 +82,7 @@ namespace
 
     iheaterlink::HeaterDevice device(&wifiManager, &httpClient, &credStore, IDRYER_API_BASE);
 
+    // Improv: пользователь ввёл credentials — сохранить в NVS и поднять Wi-Fi.
     void onImprovWiFiConnectCallback(const char *ssid, const char *password)
     {
         DEBUG_LOG("[IMPROV] Received credentials - SSID: %s\n", ssid);
@@ -88,6 +91,7 @@ namespace
         wifiConfigured = true;
     }
 
+    // Improv: ошибка при настройке Wi-Fi — только лог.
     void onImprovWiFiErrorCallback(ImprovTypes::Error err)
     {
         DEBUG_LOG("[IMPROV] Error: %d\n", err);
@@ -100,6 +104,7 @@ namespace
     char currentClaimPin[10] = "";
     uint32_t claimPinExpiresIn = 0;
 
+    // Claim PIN от CloudStateMachine: отправить в Serial для flasher-portal и вывести баннер.
     void onWebClaimPin(const char *pin, uint32_t expiresInSeconds)
     {
         strncpy(currentClaimPin, pin, sizeof(currentClaimPin) - 1);
@@ -154,7 +159,7 @@ namespace
     void handleWebSerialCommand(const String &line)
     {
         // START_CLAIM — от flasher-portal (Web Serial).
-        // claim     — от разработчика через Serial Monitor (dev-путь).
+        // claim     — через Serial Monitor (dev-путь).
         if (line.equalsIgnoreCase("START_CLAIM") || line.equalsIgnoreCase("claim"))
         {
             DEBUG_LOG("[CLAIM] Received '%s' command\n", line.c_str());
@@ -172,6 +177,7 @@ namespace
         }
     }
 
+    // Читать строку из Serial и передать в handleWebSerialCommand (только если logsEnabled).
     void processWebSerialCommands()
     {
         if (!logsEnabled)
@@ -202,7 +208,7 @@ void setup()
         ImprovTypes::ChipFamily::CF_ESP32_C3,
         "iHeater Link",
         VERSION_STR,
-        "iDryer",
+        "iHeater Link",
         "");
 
     improvSerial.onImprovConnected(onImprovWiFiConnectCallback);
