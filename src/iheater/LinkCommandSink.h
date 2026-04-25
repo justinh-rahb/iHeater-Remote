@@ -42,9 +42,5 @@ namespace iheaterlink
         uint32_t deadlineMs_ = 0; // 0 = таймер неактивен
     };
 
-    class LinkCommandSink2 : public idryer::cloud::ICommandSink
-    {
-    public:
-    }
 
 } // namespace iheaterlink
