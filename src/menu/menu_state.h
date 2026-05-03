@@ -19,6 +19,27 @@ public:
   float mat_asa = 65.0f;
   float mat_pc = 70.0f;
   float mat_pa = 70.0f;
+  float mat_pa6 = 60.0f;
+  float mat_pa11 = 50.0f;
+  float mat_pa12 = 50.0f;
+  float mat_pa66 = 70.0f;
+  float mat_pmma = 50.0f;
+  float mat_pom = 50.0f;
+  float mat_pp = 50.0f;
+  float mat_ps = 50.0f;
+  float mat_pvdf = 50.0f;
+  float mat_tpi = 50.0f;
+  float mat_pbt = 50.0f;
+  float mat_ppe = 80.0f;
+  float mat_pei = 100.0f;
+  float mat_pekk = 100.0f;
+  float mat_pes = 100.0f;
+  float mat_ppa = 100.0f;
+  float mat_pps = 100.0f;
+  float mat_peek = 110.0f;
+  float mat_ppsu = 120.0f;
+  float mat_psu = 120.0f;
+  bool diag_en = false;
   uint8_t units_count = (uint8_t)1;
   uint8_t language = (uint8_t)1;
 
