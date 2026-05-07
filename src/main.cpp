@@ -223,7 +223,23 @@ void setup() {
         Serial.println("[CMD] drying deadline expired → Off");
     });
 
-    // 7. Команды портала / Local-WS — единый путь через onCommand.
+    // 7. HA controls — продуктовые кнопки в HA UI. Публикуются автоматически
+    //    при HA-коннекте, нажатия маршрутизируются в наш callback.
+    auto& ha = device().ha();
+    ha.button("heat_50", "Heat 50°C", []() {
+        applyHeating(0, 50.0f, 0, iDryer::UnitMode::Drying, "Start");
+    }, "mdi:thermometer");
+    ha.button("heat_55", "Heat 55°C", []() {
+        applyHeating(0, 55.0f, 0, iDryer::UnitMode::Drying, "Start");
+    }, "mdi:thermometer");
+    ha.button("heat_60", "Heat 60°C", []() {
+        applyHeating(0, 60.0f, 0, iDryer::UnitMode::Drying, "Start");
+    }, "mdi:thermometer-high");
+    ha.button("stop", "Stop", []() {
+        applyStop(0);
+    }, "mdi:stop-circle");
+
+    // 8. Команды портала / Local-WS — единый путь через onCommand.
     //    Built-in (link_integration/bambu_apply/ping) обрабатывает либа сама,
     //    наши onCommand-callback'и вызываются как post-hook'и.
     auto& link = device();
