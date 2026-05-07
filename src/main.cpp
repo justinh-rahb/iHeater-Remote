@@ -198,7 +198,32 @@ void setup() {
     //    сама из device().telemetry.* (capabilities-driven).
     device().onTelemetryPublish(enrichTelemetry);
 
-    // 6. Команды портала / Local-WS — единый путь через onCommand.
+    // 6. Периодические задачи через cooperative scheduler фасада.
+    //    Тик elapsedS раз в секунду, пока режим активен.
+    device().every(1000, []() {
+        const auto m = device().status.mode[0];
+        if (m == iDryer::UnitMode::Drying || m == iDryer::UnitMode::Storage)
+            device().status.elapsedS[0]++;
+    });
+    //    Авто-Off по deadline drying — раз в полсекунды проверяем дедлайн.
+    device().every(500, []() {
+        if (!s_dryingDeadlineMs) return;
+        if ((int32_t)(millis() - s_dryingDeadlineMs) < 0) return;
+        iheaterlink::ControllerOutputCommand cmd;
+        cmd.mode        = iheaterlink::ControllerOutputMode::Off;
+        cmd.targetTempC = 0.0f;
+        s_output.apply(cmd);
+        s_dryingDeadlineMs = 0;
+        device().status.mode[0]        = iDryer::UnitMode::Idle;
+        device().status.targetTempC[0] = 0.0f;
+        device().status.durationS[0]   = 0;
+        device().status.elapsedS[0]    = 0;
+        device().telemetry.heaterPower01[0] = 0.0f;
+        device().publishStatusNow();
+        Serial.println("[CMD] drying deadline expired → Off");
+    });
+
+    // 7. Команды портала / Local-WS — единый путь через onCommand.
     //    Built-in (link_integration/bambu_apply/ping) обрабатывает либа сама,
     //    наши onCommand-callback'и вызываются как post-hook'и.
     auto& link = device();
@@ -244,31 +269,5 @@ void setup() {
 }
 
 void loop() {
-    device().loop();   // WiFi/MQTT/LocalAccess + auto-telemetry/status
-
-    // Тикаем elapsedS раз в секунду пока активный режим.
-    static uint32_t s_lastTickMs = 0;
-    if ((uint32_t)(millis() - s_lastTickMs) >= 1000u) {
-        s_lastTickMs = millis();
-        const auto m = device().status.mode[0];
-        if (m == iDryer::UnitMode::Drying || m == iDryer::UnitMode::Storage)
-            device().status.elapsedS[0]++;
-    }
-
-    // Авто-Off по deadline сушки. Сравнение со знаком корректно при wrap millis().
-    if (s_dryingDeadlineMs && (int32_t)(millis() - s_dryingDeadlineMs) >= 0) {
-        iheaterlink::ControllerOutputCommand cmd;
-        cmd.mode        = iheaterlink::ControllerOutputMode::Off;
-        cmd.targetTempC = 0.0f;
-        s_output.apply(cmd);
-        s_dryingDeadlineMs = 0;
-
-        device().status.mode[0]        = iDryer::UnitMode::Idle;
-        device().status.targetTempC[0] = 0.0f;
-        device().status.durationS[0]   = 0;
-        device().status.elapsedS[0]    = 0;
-        device().telemetry.heaterPower01[0] = 0.0f;
-        device().publishStatusNow();
-        Serial.println("[CMD] drying deadline expired → Off");
-    }
+    device().loop();   // WiFi/MQTT/LocalAccess + auto-telemetry/status + every() tasks
 }
