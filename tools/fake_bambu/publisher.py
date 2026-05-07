@@ -6,16 +6,17 @@ Fake Bambu publisher — шлёт report-payloads в device/{SERIAL}/report.
 chamber_target всегда 0 — целевая температура камеры берётся из типа
 филамента активного трея AMS, через menu.mat_<type> на iHeater-link.
 
-Лестница tray_type по 30 сек: PLA → PETG → ABS → пусто (FINISH) → PLA → ...
+Лестница по 30 сек:
+  PREPARE (PLA) → RUNNING ams (PLA) → RUNNING vt_tray (PETG)
+                → RUNNING ams_ht (PA-CF) → FINISH (пусто) → ...
 
-Когда tray занят, payload содержит:
-  gcode_state = "RUNNING"
-  ams.tray_now = "0"               (AMS 0, slot 0)
-  ams.ams[0].tray[0].tray_type = "<PLA|PETG|ABS>"
+Состояния gcode_state:
+  PREPARE — принтер готовится (homing/прогрев), tray уже выбран
+  RUNNING — печать идёт
+  FINISH  — печать завершена, трей выгружен (tray_now="255")
 
-Когда tray пуст:
-  gcode_state = "FINISH"
-  ams.tray_now = "255"             (нет активного трея)
+ESP-side auto_heat включает нагрев при PREPARE и RUNNING, выключает
+при FINISH (см. iHeater-link/src/heater/auto_heat.cpp::bambuShouldHeat).
 
 Зависимости: pip3 install --user paho-mqtt
 """
@@ -47,6 +48,7 @@ CERT_PATH      = os.environ.get("FAKE_BAMBU_CERT",
 #   ("ams_ht",   "PA-CF")  — AMS HT (tray_now="128"), полиамиды
 #   ("finish",   None)     — печать завершена, трей выгружен (tray_now="255")
 PATTERN = [
+    ("prepare", "PLA"),
     ("ams",     "PLA"),
     ("vt_tray", "PETG"),
     ("ams_ht",  "PA-CF"),
@@ -62,7 +64,30 @@ current_index = 0
 
 
 def make_payload(source: str, tray_type):
-    """source: 'ams' | 'vt_tray' | 'ams_ht' | 'finish'."""
+    """source: 'prepare' | 'ams' | 'vt_tray' | 'ams_ht' | 'finish'."""
+    if source == "prepare":
+        # Принтер готовится к печати: tray уже выбран, прогрев/homing.
+        # ESP должен включить нагрев камеры (auto_heat: PREPARE → heat).
+        return {
+            "print": {
+                "command":     "push_status",
+                "gcode_state": "PREPARE",
+                "mc_percent":  0,
+                "ams": {
+                    "tray_now": "0",
+                    "ams": [{
+                        "id": "0",
+                        "tray": [
+                            {"id": "0", "tray_type": tray_type, "tray_info_idx": "GFA00"},
+                            {"id": "1"},
+                            {"id": "2"},
+                            {"id": "3"},
+                        ],
+                    }],
+                },
+            }
+        }
+
     if source == "ams":
         # tray_now="0" → ams_index = 0>>2 = 0, tray_index = 0&3 = 0
         return {
