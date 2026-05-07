@@ -53,6 +53,15 @@ public:
     /// @return true если правка применена.
     bool applySetCommand(JsonObjectConst data);
 
+    /// @brief commands/invoke по контракту menu_protocol_v1.
+    /// JSON: {"id":<int>, "args"?:{...}, "timestamp"?: "..."}.
+    /// Находит menu item по id, если type=action — вызывает on_invoke.
+    /// args сейчас игнорируются (action функции бесаргументные); сложные
+    /// команды с args (profile/rfid_write/led_pulse) — отдельная задача
+    /// согласно ___capabilities_and_menu_as_protocol.md §6.5/§10.2.
+    /// @return true если action найден и вызван.
+    bool applyInvokeCommand(JsonObjectConst data);
+
 private:
     /// Прочитать текущее состояние bambu_en/moon_en/ha_en и вернуть
     /// активное подключение (или None если все выключены).

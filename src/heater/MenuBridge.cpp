@@ -11,9 +11,11 @@
 #include <menu_bindings.h>
 #include <menu_cache.h>
 #include <menu_commands.h>
+#include <menu_ids.h>
 #include <menu_meta.h>
 #include <menu_nvs_io.h>
 #include <menu_state.h>
+#include <menu_types.h>
 
 namespace iheaterlink {
 
@@ -221,6 +223,40 @@ bool MenuBridge::applySetCommand(JsonObjectConst data) {
 
   HAL_LOG_INFO("MENU", "set: %s = %.3f (id=%u)", b->bind, (double)val,
                (unsigned)b->id);
+  return true;
+}
+
+bool MenuBridge::applyInvokeCommand(JsonObjectConst data) {
+  if (!nvsReady_)
+    begin();
+
+  // Адресация только по id (action не имеет bind).
+  if (!data["id"].is<int>()) {
+    HAL_LOG_WARN("MENU", "invoke: ожидается поле id");
+    return false;
+  }
+  uint16_t id = (uint16_t)data["id"].as<int>();
+
+  if (id >= MENU__COUNT) {
+    HAL_LOG_WARN("MENU", "invoke: id=%u вне диапазона", (unsigned)id);
+    return false;
+  }
+
+  const MenuItem &item = g_menu[id];
+  if (item.type != MN_ACTION) {
+    HAL_LOG_WARN("MENU", "invoke: id=%u не action (type=%d)", (unsigned)id,
+                 (int)item.type);
+    return false;
+  }
+  if (!item.u.action.invoke) {
+    HAL_LOG_WARN("MENU", "invoke: id=%u нет on_invoke", (unsigned)id);
+    return false;
+  }
+
+  // args — для будущих сложных команд (profile/rfid_write/led_pulse).
+  // Сейчас action функции void(void) — args игнорируются.
+  HAL_LOG_INFO("MENU", "invoke: id=%u", (unsigned)id);
+  item.u.action.invoke();
   return true;
 }
 

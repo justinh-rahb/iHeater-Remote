@@ -258,12 +258,18 @@ void setup() {
     link.onCommand("find",         [](JsonObjectConst) { /* iHeater Link не имеет индикатора */ });
     link.onCommand("clear_errors", [](JsonObjectConst) { /* нет UART-ошибок */ });
 
-    // get_config / set — меню iHeater Link (mat_*, *_en, host/port интеграций).
+    // get_config / set / invoke — меню iHeater Link (menu_protocol_v1).
+    // Универсальный путь команд от портала: set меняет параметр меню,
+    // invoke вызывает action. Согласно
+    // ___capabilities_and_menu_as_protocol.md §6.5.
     link.onCommand("get_config", [](JsonObjectConst) {
         if (s_menuBridge) s_menuBridge->publishFullConfig();
     });
     link.onCommand("set", [](JsonObjectConst data) {
         if (s_menuBridge) s_menuBridge->applySetCommand(data);
+    });
+    link.onCommand("invoke", [](JsonObjectConst data) {
+        if (s_menuBridge) s_menuBridge->applyInvokeCommand(data);
     });
 
     // link_integration: сама команда обрабатывается built-in, здесь только
