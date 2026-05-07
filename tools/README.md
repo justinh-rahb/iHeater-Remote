@@ -1,5 +1,41 @@
 # Инструменты разработчика iDryer Link
 
+## tools/fake_moonraker.py
+
+Локальный WebSocket-сервер, имитирующий Moonraker (Klipper) — для проверки
+Moonraker-интеграции iHeater Link без реального принтера. Шлёт лестницу
+`VIRTUAL_CHAMBER.target` (70 → 65 → 60 → 55 → 50 → 55 → 60 → 65, шаг 30 с).
+
+Подробности: [`tools/fake_moonraker.README.md`](fake_moonraker.README.md).
+
+```bash
+python3 tools/fake_moonraker.py
+```
+
+Настройка в портале: Moonraker → host=`<IP мака>`, port=`7125`, path=`/websocket`.
+
+---
+
+## tools/fake_bambu/
+
+Локальный TLS-MQTT broker (mosquitto) + publisher.py, имитирующий принтер
+Bambu Lab — для проверки Bambu Reader без реального принтера. Лестница
+по 30 с: AMS → vt_tray → AMS-HT → FINISH с разными `tray_type`.
+
+Подробности: [`tools/fake_bambu/README.md`](fake_bambu/README.md).
+
+```bash
+brew install mosquitto
+cd tools/fake_bambu && ./gen_cert.sh
+mosquitto -c mosquitto.conf      # терминал A
+python3 publisher.py             # терминал B
+```
+
+Настройка в портале: Bambu → ip=`<IP мака>`, serial=`FAKE_BAMBU_001`,
+lan=`12345678`.
+
+---
+
 ## tools/mock_portal.py
 
 Мок backend-портала для тестирования cloud-флоу без реального сервера.
