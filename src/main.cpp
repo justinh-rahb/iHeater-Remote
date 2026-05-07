@@ -65,10 +65,11 @@ static iDryer::Link& device() {
 
 // ── Вспомогательная функция парсинга unitId ──────────────────────────────────
 // "U1"–"U4" → 0–3; всё остальное (включая nullptr) → 0xFF (broadcast).
-static uint8_t parseRawUnitId(const char* s) {
+static uint8_t pickUnit(JsonObjectConst data) {
+    const char* s = data["unitId"] | (const char*)nullptr;
     if (s && s[0] == 'U' && s[1] >= '1' && s[1] <= '4' && s[2] == '\0')
         return static_cast<uint8_t>(s[1] - '1');
-    return 0xFF;
+    return 0;
 }
 
 // ── Shared apply-logic ────────────────────────────────────────────────────────
@@ -76,162 +77,58 @@ static uint8_t parseRawUnitId(const char* s) {
 // device().status.* + немедленная публикация в портал.
 // Вызывается из ДВУХ путей:
 //   • handleMqttCommand  (MQTT → runtime.setCommandHandler)
-//   • device().onRequest (local-WS → фасадный dispatchCommand → onRequest)
-static void applyRequest(const iDryer::Request& req) {
-    const uint8_t u = (req.unitId < iDryer::MAX_UNITS) ? req.unitId : 0;
-
+// Применяет нагрев — общая логика для drying/storage. duration=0 → без deadline.
+static void applyHeating(uint8_t u, float targetTempC, uint32_t durationS,
+                         iDryer::UnitMode mode, const char* tag) {
     iheaterlink::ControllerOutputCommand cmd;
-    switch (req.kind) {
-    case iDryer::RequestKind::Start:
-        cmd.mode        = iheaterlink::ControllerOutputMode::TargetTemperature;
-        cmd.targetTempC = req.targetTempC;
-        s_output.apply(cmd);
-        s_dryingDeadlineMs = req.durationS
-                           ? millis() + req.durationS * 1000u
-                           : 0;
-        device().status.mode[u]        = iDryer::UnitMode::Drying;
-        device().status.targetTempC[u] = req.targetTempC;
-        device().status.durationS[u]   = req.durationS;
-        device().status.elapsedS[u]    = 0;
-        device().telemetry.heaterPower01[u] = 1.0f;
-        Serial.printf("[CMD] Start temp=%.1f duration=%us\n",
-                      (double)req.targetTempC, req.durationS);
-        break;
-
-    case iDryer::RequestKind::Storage:
-        cmd.mode        = iheaterlink::ControllerOutputMode::TargetTemperature;
-        cmd.targetTempC = req.targetTempC;
-        s_output.apply(cmd);
-        s_dryingDeadlineMs = 0;
-        device().status.mode[u]        = iDryer::UnitMode::Storage;
-        device().status.targetTempC[u] = req.targetTempC;
-        device().status.durationS[u]   = 0;
-        device().status.elapsedS[u]    = 0;
-        device().telemetry.heaterPower01[u] = 1.0f;
-        Serial.printf("[CMD] Storage temp=%.1f\n", (double)req.targetTempC);
-        break;
-
-    case iDryer::RequestKind::Stop:
-        cmd.mode        = iheaterlink::ControllerOutputMode::Off;
-        cmd.targetTempC = 0.0f;
-        s_output.apply(cmd);
-        s_dryingDeadlineMs = 0;
-        device().status.mode[u]        = iDryer::UnitMode::Idle;
-        device().status.targetTempC[u] = 0.0f;
-        device().status.durationS[u]   = 0;
-        device().status.elapsedS[u]    = 0;
-        device().telemetry.heaterPower01[u] = 0.0f;
-        Serial.println("[CMD] Stop");
-        break;
-
-    case iDryer::RequestKind::Find:
-    case iDryer::RequestKind::ClearErrors:
-        // iHeater Link не имеет индикатора поиска и ошибок — принимаем, не делаем ничего.
-        break;
-    }
-
+    cmd.mode        = iheaterlink::ControllerOutputMode::TargetTemperature;
+    cmd.targetTempC = targetTempC;
+    s_output.apply(cmd);
+    s_dryingDeadlineMs = durationS ? (millis() + durationS * 1000u) : 0;
+    device().status.mode[u]        = mode;
+    device().status.targetTempC[u] = targetTempC;
+    device().status.durationS[u]   = durationS;
+    device().status.elapsedS[u]    = 0;
+    device().telemetry.heaterPower01[u] = 1.0f;
+    Serial.printf("[CMD] %s temp=%.1f duration=%us\n", tag, (double)targetTempC, durationS);
     device().publishStatusNow();
 }
 
-// ── MQTT command handler ──────────────────────────────────────────────────────
-// Устанавливается через runtime()->setCommandHandler() ПОСЛЕ begin().
-// Покрывает ВСЕ MQTT-команды: конфиг (get_config/set), интеграции
-// (link_integration/bambu_apply), бизнес (drying/stop/storage/find).
-//
-// Для local-WS путь другой: фасадный dispatchCommand → onRequest(applyRequest).
-// Local-WS не получает get_config/set/link_integration — это нормально:
-// эти команды всегда инициирует портал через MQTT.
-static void handleMqttCommand(const char* cmd, JsonObjectConst data) {
-    if (!cmd) return;
+static void applyStop(uint8_t u) {
+    iheaterlink::ControllerOutputCommand cmd;
+    cmd.mode        = iheaterlink::ControllerOutputMode::Off;
+    cmd.targetTempC = 0.0f;
+    s_output.apply(cmd);
+    s_dryingDeadlineMs = 0;
+    device().status.mode[u]        = iDryer::UnitMode::Idle;
+    device().status.targetTempC[u] = 0.0f;
+    device().status.durationS[u]   = 0;
+    device().status.elapsedS[u]    = 0;
+    device().telemetry.heaterPower01[u] = 0.0f;
+    Serial.println("[CMD] Stop");
+    device().publishStatusNow();
+}
 
-    // ─── Конфигурация меню ────────────────────────────────────────────────
-    if (strcmp(cmd, "get_config") == 0) {
-        if (s_menuBridge) s_menuBridge->publishFullConfig();
-        return;
-    }
-    if (strcmp(cmd, "set") == 0) {
-        if (s_menuBridge) s_menuBridge->applySetCommand(data);
-        return;
-    }
+// ── Парсинг target temperature из payload ────────────────────────────────────
+// Портал шлёт {params:{temperature, duration}}, legacy — {targetTemperature}.
+static float pickTemp(JsonObjectConst data) {
+    JsonObjectConst params = data["params"];
+    if (params && params["temperature"].is<float>())
+        return params["temperature"].as<float>();
+    if (data["targetTemperature"].is<float>())
+        return data["targetTemperature"].as<float>();
+    return 0.0f;
+}
 
-    // ─── Интеграции ───────────────────────────────────────────────────────
-    if (strcmp(cmd, "link_integration") == 0) {
-        auto* mgr = device().integrationsManager();
-        mgr->handleLinkIntegrationCommand(data);
-        // Синхронизировать menu-toggle для эксклюзивности bambu_en/moon_en/ha_en.
-        // Делается ПОСЛЕ handleLinkIntegrationCommand (новый host/port уже сохранён).
-        const char* type    = data["type"]    | (const char*)nullptr;
-        const bool  enabled = data["enabled"] | false;
-        if (type && enabled && s_menuBridge) {
-            const char* bind = nullptr;
-            if      (strcmp(type, "moonraker") == 0) bind = "moon_en";
-            else if (strcmp(type, "bambu")     == 0) bind = "bambu_en";
-            else if (strcmp(type, "ha")        == 0) bind = "ha_en";
-            if (bind) {
-                StaticJsonDocument<32> doc;
-                doc["bind"] = bind;
-                doc["val"]  = true;
-                s_menuBridge->applySetCommand(doc.as<JsonObjectConst>());
-            }
-        }
-        return;
-    }
-    if (strcmp(cmd, "bambu_apply") == 0) {
-        device().integrationsManager()->handleBambuApplyCommand(data);
-        return;
-    }
-
-    // ─── Бизнес-команды ───────────────────────────────────────────────────
-    // Парсим из сырого JSON (1-в-1 с фасадным iDryer.cpp::dispatchCommand),
-    // собираем типизированный Request и применяем через applyRequest.
-    iDryer::Request req{};
-    req.unitId = parseRawUnitId(data["unitId"].as<const char*>());
-
-    if (strcmp(cmd, "drying") == 0) {
-        req.kind = iDryer::RequestKind::Start;
-        // Портал шлёт duration в МИНУТАХ; applyRequest ожидает секунды.
-        JsonObjectConst params = data["params"];
-        if (params && params["temperature"].is<float>())
-            req.targetTempC = params["temperature"].as<float>();
-        else if (data["targetTemperature"].is<float>())
-            req.targetTempC = data["targetTemperature"].as<float>();
-        uint32_t durMin = 0;
-        if (params && params["duration"].is<uint32_t>())
-            durMin = params["duration"].as<uint32_t>();
-        else if (data["durationMinutes"].is<uint32_t>())
-            durMin = data["durationMinutes"].as<uint32_t>();
-        req.durationS = durMin * 60u;
-        applyRequest(req);
-        return;
-    }
-    if (strcmp(cmd, "stop") == 0) {
-        req.kind = iDryer::RequestKind::Stop;
-        applyRequest(req);
-        return;
-    }
-    if (strcmp(cmd, "storage") == 0) {
-        req.kind = iDryer::RequestKind::Storage;
-        JsonObjectConst params = data["params"];
-        if (params && params["temperature"].is<float>())
-            req.targetTempC = params["temperature"].as<float>();
-        else if (data["targetTemperature"].is<float>())
-            req.targetTempC = data["targetTemperature"].as<float>();
-        applyRequest(req);
-        return;
-    }
-    if (strcmp(cmd, "find") == 0) {
-        req.kind = iDryer::RequestKind::Find;
-        applyRequest(req);
-        return;
-    }
-    if (strcmp(cmd, "clear_errors") == 0) {
-        req.kind = iDryer::RequestKind::ClearErrors;
-        applyRequest(req);
-        return;
-    }
-
-    // Команды которые iHeater Link не поддерживает (нет UART-MCU).
-    Serial.printf("[CMD] unsupported on iHeater Link: %s\n", cmd);
+// Длительность в секундах (портал шлёт минуты).
+static uint32_t pickDurationSec(JsonObjectConst data) {
+    JsonObjectConst params = data["params"];
+    uint32_t durMin = 0;
+    if (params && params["duration"].is<uint32_t>())
+        durMin = params["duration"].as<uint32_t>();
+    else if (data["durationMinutes"].is<uint32_t>())
+        durMin = data["durationMinutes"].as<uint32_t>();
+    return durMin * 60u;
 }
 
 // ── iHeater Link–специфичная телеметрия ──────────────────────────────────────
@@ -311,13 +208,49 @@ void setup() {
     mgr->setVirtualChamberCallback(iheaterlink::onVirtualChamberUpdate);
     mgr->setBambuPrinterStatusCallback(iheaterlink::onBambuPrinterStatusUpdate);
 
-    // 5. MQTT command handler — СТРОГО после begin().
-    //    begin() ставит свой dispatchCommand; наш handleMqttCommand перезаписывает.
-    device().runtime()->setCommandHandler(handleMqttCommand);
+    // 5. Команды портала / Local-WS — единый путь через onCommand.
+    //    Built-in (link_integration/bambu_apply/ping) обрабатывает либа сама,
+    //    наши onCommand-callback'и вызываются как post-hook'и.
+    auto& link = device();
 
-    // 6. Local-WS command handler: фасад сам маппит drying/stop/storage/find
-    //    → typed Request → applyRequest обновляет железо + status + publishNow.
-    device().onRequest(applyRequest);
+    link.onCommand("drying", [](JsonObjectConst data) {
+        applyHeating(pickUnit(data), pickTemp(data), pickDurationSec(data),
+                     iDryer::UnitMode::Drying, "Start");
+    });
+    link.onCommand("storage", [](JsonObjectConst data) {
+        applyHeating(pickUnit(data), pickTemp(data), 0,
+                     iDryer::UnitMode::Storage, "Storage");
+    });
+    link.onCommand("stop", [](JsonObjectConst data) {
+        applyStop(pickUnit(data));
+    });
+    link.onCommand("find",         [](JsonObjectConst) { /* iHeater Link не имеет индикатора */ });
+    link.onCommand("clear_errors", [](JsonObjectConst) { /* нет UART-ошибок */ });
+
+    // get_config / set — меню iHeater Link (mat_*, *_en, host/port интеграций).
+    link.onCommand("get_config", [](JsonObjectConst) {
+        if (s_menuBridge) s_menuBridge->publishFullConfig();
+    });
+    link.onCommand("set", [](JsonObjectConst data) {
+        if (s_menuBridge) s_menuBridge->applySetCommand(data);
+    });
+
+    // link_integration: сама команда обрабатывается built-in, здесь только
+    // post-hook — sync menu-toggle (bambu_en/moon_en/ha_en) для эксклюзивности.
+    link.onCommand("link_integration", [](JsonObjectConst data) {
+        const char* type    = data["type"]    | (const char*)nullptr;
+        const bool  enabled = data["enabled"] | false;
+        if (!type || !enabled || !s_menuBridge) return;
+        const char* bind = nullptr;
+        if      (strcmp(type, "moonraker") == 0) bind = "moon_en";
+        else if (strcmp(type, "bambu")     == 0) bind = "bambu_en";
+        else if (strcmp(type, "ha")        == 0) bind = "ha_en";
+        if (!bind) return;
+        StaticJsonDocument<32> doc;
+        doc["bind"] = bind;
+        doc["val"]  = true;
+        s_menuBridge->applySetCommand(doc.as<JsonObjectConst>());
+    });
 }
 
 void loop() {
