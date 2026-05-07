@@ -39,7 +39,7 @@ static const iDryer::Config CFG = {
     .allowBambu      = true,
     .allowMoonraker  = true,
 
-    .telemetryPeriodMs = 0,      // публикуем вручную (iheater_link-specific payload)
+    .telemetryPeriodMs = 5000,   // либа сама публикует, продукт обогащает через onTelemetryPublish
     .statusPeriodMs    = 5000,
 };
 
@@ -131,37 +131,22 @@ static uint32_t pickDurationSec(JsonObjectConst data) {
     return durMin * 60u;
 }
 
-// ── iHeater Link–специфичная телеметрия ──────────────────────────────────────
-// Публикует поля, которых нет в стандартном idryer-core payload:
-//   outputMode, targetTempC, active — бэкенд использует их для heaterIntent
-//   (telemetry.handler.ts → broadcastTelemetryUpdate → фронт HeaterDashboardCard).
-// temperature/humidity в units[] = 0: датчиков нет, но поля нужны бэкенду.
-// CFG.telemetryPeriodMs = 0, чтобы idryer-core не публиковал свой урезанный payload.
-static void publishIHeaterTelemetry() {
-    auto* mqttClient = device().mqttClient();
-    if (!mqttClient) return;
-
+// ── iHeater Link–специфичные top-level поля для бэкенда ──────────────────────
+// Бэкенд (telemetry.handler.ts) ожидает эти поля для heaterIntent во фронт-WS:
+//   deviceType / active / outputMode / targetTempC.
+// Подключается через device().onTelemetryPublish(...) в setup() — либа сама
+// собирает units[] из telemetry struct и зовёт нас перед отправкой.
+static void enrichTelemetry(JsonObject root) {
     const auto cmd = s_output.getLastCommand();
     const bool heating = (cmd.mode == iheaterlink::ControllerOutputMode::TargetTemperature);
 
     using AI = idryer::cloud::ActiveIntegration;
     const AI activeAI = device().integrationsManager()->getActive();
 
-    StaticJsonDocument<384> doc;
-    doc["deviceType"] = "iheater_link";
-    doc["active"]     = idryer::cloud::activeIntegrationToString(activeAI);
-    doc["outputMode"] = heating ? 1 : 0;
-    doc["targetTempC"]= cmd.targetTempC;
-
-    JsonArray units = doc.createNestedArray("units");
-    JsonObject u1   = units.createNestedObject();
-    u1["unitId"]    = "U1";
-    u1["temperature"]= 0;
-    u1["humidity"]  = 0;
-    u1["heaterPower"]= heating ? 100 : 0;
-    u1["fanStatus"] = false;
-
-    mqttClient->publishTelemetry(doc);
+    root["deviceType"] = "iheater_link";
+    root["active"]     = idryer::cloud::activeIntegrationToString(activeAI);
+    root["outputMode"] = heating ? 1 : 0;
+    root["targetTempC"]= cmd.targetTempC;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,7 +193,12 @@ void setup() {
     mgr->setVirtualChamberCallback(iheaterlink::onVirtualChamberUpdate);
     mgr->setBambuPrinterStatusCallback(iheaterlink::onBambuPrinterStatusUpdate);
 
-    // 5. Команды портала / Local-WS — единый путь через onCommand.
+    // 5. Обогащение telemetry top-level полями (deviceType/active/outputMode/
+    //    targetTempC) — нужны бэкенду для heaterIntent. Либа собирает units[]
+    //    сама из device().telemetry.* (capabilities-driven).
+    device().onTelemetryPublish(enrichTelemetry);
+
+    // 6. Команды портала / Local-WS — единый путь через onCommand.
     //    Built-in (link_integration/bambu_apply/ping) обрабатывает либа сама,
     //    наши onCommand-callback'и вызываются как post-hook'и.
     auto& link = device();
@@ -254,14 +244,7 @@ void setup() {
 }
 
 void loop() {
-    device().loop();   // WiFi/MQTT/LocalAccess + auto-status
-
-    // Ручная телеметрия каждые 5 сек (iheater_link-specific payload).
-    static uint32_t s_lastTelemetryMs = 0;
-    if ((uint32_t)(millis() - s_lastTelemetryMs) >= 5000u) {
-        s_lastTelemetryMs = millis();
-        publishIHeaterTelemetry();
-    }
+    device().loop();   // WiFi/MQTT/LocalAccess + auto-telemetry/status
 
     // Тикаем elapsedS раз в секунду пока активный режим.
     static uint32_t s_lastTickMs = 0;
