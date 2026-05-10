@@ -40,6 +40,10 @@ public:
   float mat_ppsu = 120.0f;
   float mat_psu = 120.0f;
   bool diag_en = false;
+  bool log_portal = false;
+  bool log_printer = false;
+  bool log_device = false;
+  bool log_debug = false;
   uint8_t units_count = (uint8_t)1;
   uint8_t language = (uint8_t)1;
 

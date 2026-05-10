@@ -21,6 +21,9 @@ class RmtOutputAdapter;
 /// Привязать модуль авто-нагрева к выходному адаптеру. Один раз при старте.
 void wireAutoHeat(RmtOutputAdapter* output);
 
+/// Включить/выключить логирование решений о нагреве (теги HEATER).
+void setLogDecisions(bool enabled);
+
 /// Колбэк, регистрируемый в LinkIntegrationsManager::setVirtualChamberCallback.
 void onVirtualChamberUpdate(const idryer::cloud::VirtualChamberData& data);
 

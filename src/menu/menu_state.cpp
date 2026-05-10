@@ -39,6 +39,10 @@ void MenuState::initDefaults(){
   this->mat_ppsu = 120.0f;
   this->mat_psu = 120.0f;
   this->diag_en = false;
+  this->log_portal = false;
+  this->log_printer = false;
+  this->log_device = false;
+  this->log_debug = false;
   this->units_count = (uint8_t)1;
   this->language = (uint8_t)1;
 }
@@ -85,6 +89,10 @@ void MenuState::loadFromNVS(){
   ee_read("mat_ppsu", this->mat_ppsu);
   ee_read("mat_psu", this->mat_psu);
   ee_read("diag_en", this->diag_en);
+  ee_read("log_portal", this->log_portal);
+  ee_read("log_printer", this->log_printer);
+  ee_read("log_device", this->log_device);
+  ee_read("log_debug", this->log_debug);
   ee_read("units_count", this->units_count);
   ee_read("language", this->language);
   menu_nvs_end();
@@ -126,6 +134,10 @@ void MenuState::saveToNVS(){
   ee_store_field("mat_ppsu", this->mat_ppsu);
   ee_store_field("mat_psu", this->mat_psu);
   ee_store_field("diag_en", this->diag_en);
+  ee_store_field("log_portal", this->log_portal);
+  ee_store_field("log_printer", this->log_printer);
+  ee_store_field("log_device", this->log_device);
+  ee_store_field("log_debug", this->log_debug);
   ee_store_field("units_count", this->units_count);
   ee_store_field("language", this->language);
   menu_nvs_end();

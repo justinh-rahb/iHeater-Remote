@@ -17,8 +17,7 @@ namespace {
 constexpr uint32_t RMT_FIELD_MAX_US = 32767;
 } // namespace // namespace
 
-// Инициализировать RMT-драйвер ESP32 и запустить FreeRTOS-таск периодической
-// отправки.
+// Запускает RMT-драйвер и FreeRTOS-таск периодической отправки фреймов на STM32.
 void RmtOutputAdapter::begin() {
   lastPulseCode_ = encode(lastCommand_);
 
@@ -55,7 +54,7 @@ void RmtOutputAdapter::begin() {
               tskIDLE_PRIORITY + 2, &rmtTask_);
 }
 
-// Принять новую команду и обновить код пульса для следующей отправки.
+// Сохраняет команду и пересчитывает пульс-код для следующего фрейма.
 void RmtOutputAdapter::apply(const ControllerOutputCommand &command) {
   lastCommand_ = command;
   lastPulseCode_ = encode(command);
@@ -65,8 +64,7 @@ ControllerOutputCommand RmtOutputAdapter::getLastCommand() const {
   return lastCommand_;
 }
 
-// Перевести команду в код пульса: offCode для Off, иначе температура
-// квантованная в min–max.
+// Кодирует команду в число импульсов: offCode для Off, иначе температура квантуется в min–max.
 uint8_t RmtOutputAdapter::encode(const ControllerOutputCommand &command) const {
   if (command.mode == ControllerOutputMode::Off) {
     return config_.offCode;
@@ -86,7 +84,7 @@ uint8_t RmtOutputAdapter::encode(const ControllerOutputCommand &command) const {
   return static_cast<uint8_t>(quantized);
 }
 
-// Сформировать кадр для RMT: SYNC LOW + N счётных импульсов + маркер конца.
+// Собирает RMT-фрейм: SYNC LOW + N импульсов (pulseCode) + маркер конца.
 //
 // Один rmt_item32_t — это два полуслова подряд:
 //   { level0, duration0,   level1, duration1 }
@@ -138,7 +136,7 @@ void RmtOutputAdapter::rebuildFrame(uint8_t pulseCode) {
   builtForCode_ = pulseCode;
 }
 
-// Принудительно отправить фрейм немедленно, не дожидаясь следующего периода.
+// Будит FreeRTOS-таск и отправляет фрейм немедленно, не дожидаясь таймера.
 void RmtOutputAdapter::forceFrame() {
   if (!isEnabled() || !rmtTask_)
     return;

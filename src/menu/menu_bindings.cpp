@@ -45,6 +45,10 @@ const MenuBinding g_bindings[] = {
   {MENU_IHEATER_LINK_PPSU_TEMP, "mat_ppsu", VT_F32, (void*)&menu.mat_ppsu, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_IHEATER_LINK_PSU_TEMP, "mat_psu", VT_F32, (void*)&menu.mat_psu, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_DIAG_ENABLED, "diag_en", VT_BOOL, (void*)&menu.diag_en, true, nullptr, false, SCOPE_GLOBAL},
+  {MENU_LOG_PORTAL_ENABLED, "log_portal", VT_BOOL, (void*)&menu.log_portal, true, nullptr, false, SCOPE_GLOBAL},
+  {MENU_LOG_PRINTER_ENABLED, "log_printer", VT_BOOL, (void*)&menu.log_printer, true, nullptr, false, SCOPE_GLOBAL},
+  {MENU_LOG_DEVICE_ENABLED, "log_device", VT_BOOL, (void*)&menu.log_device, true, nullptr, false, SCOPE_GLOBAL},
+  {MENU_LOG_DEBUG_ENABLED, "log_debug", VT_BOOL, (void*)&menu.log_debug, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_UNITS_COUNT, "units_count", VT_U8, (void*)&menu.units_count, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_LANGUAGE, "language", VT_U8, (void*)&menu.language, true, nullptr, false, SCOPE_GLOBAL},
 };

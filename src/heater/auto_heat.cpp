@@ -15,11 +15,16 @@
 namespace iheaterlink {
 
 namespace {
-RmtOutputAdapter* g_output = nullptr;
+RmtOutputAdapter* g_output       = nullptr;
+bool              g_logDecisions = false;
 }
 
 void wireAutoHeat(RmtOutputAdapter* output) {
     g_output = output;
+}
+
+void setLogDecisions(bool enabled) {
+    g_logDecisions = enabled;
 }
 
 // VirtualChamber из Moonraker. Активен только при moon_en=true в меню.
@@ -39,14 +44,16 @@ void onVirtualChamberUpdate(const idryer::cloud::VirtualChamberData& data) {
     }
     g_output->apply(cmd);
 
-    HAL_LOG_INFO("HEATER",
-                 "VIRTUAL_CHAMBER: autoHeat=%d available=%d target=%.1f temp=%.1f hasSensor=%d → target=%.1f°C",
-                 autoHeat ? 1 : 0,
-                 data.available ? 1 : 0,
-                 data.target,
-                 data.temperature,
-                 data.hasSensor ? 1 : 0,
-                 cmd.targetTempC);
+    if (g_logDecisions) {
+        HAL_LOG_INFO("HEATER",
+                     "VIRTUAL_CHAMBER: autoHeat=%d available=%d target=%.1f temp=%.1f hasSensor=%d → target=%.1f°C",
+                     autoHeat ? 1 : 0,
+                     data.available ? 1 : 0,
+                     data.target,
+                     data.temperature,
+                     data.hasSensor ? 1 : 0,
+                     cmd.targetTempC);
+    }
 }
 
 // Bambu Reader. Активен только при bambu_en=true в меню.
@@ -109,16 +116,18 @@ void onBambuPrinterStatusUpdate(const idryer::cloud::BambuPrinterStatus& status)
 
     g_output->apply(cmd);
 
-    HAL_LOG_INFO("HEATER",
-                 "BAMBU status: autoHeat=%d state=%s chamberTarget=%.1f chamberTemp=%.1f tray=%s menu=%.1f → target=%.1f°C (src=%s)",
-                 autoHeat ? 1 : 0,
-                 status.gcodeState,
-                 status.chamberTarget,
-                 status.chamberTemp,
-                 status.trayType,
-                 menuTemp,
-                 cmd.targetTempC,
-                 source);
+    if (g_logDecisions) {
+        HAL_LOG_INFO("HEATER",
+                     "BAMBU status: autoHeat=%d state=%s chamberTarget=%.1f chamberTemp=%.1f tray=%s menu=%.1f → target=%.1f°C (src=%s)",
+                     autoHeat ? 1 : 0,
+                     status.gcodeState,
+                     status.chamberTarget,
+                     status.chamberTemp,
+                     status.trayType,
+                     menuTemp,
+                     cmd.targetTempC,
+                     source);
+    }
 }
 
 } // namespace iheaterlink

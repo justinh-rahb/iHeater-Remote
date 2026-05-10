@@ -18,8 +18,7 @@ MenuBridge*                              g_menu         = nullptr;
 idryer::cloud::LinkIntegrationsManager* g_integrations = nullptr;
 RmtOutputAdapter*                       g_output       = nullptr;
 
-// Deadline для авто-Off после `commands/drying { duration: N min }`.
-// 0 — таймер неактивен. Поведение и сравнение со знаком — как в legacy LinkCommandSink::tick.
+// Время авто-выключения нагрева (ms). 0 = таймер не активен.
 uint32_t g_dryingDeadlineMs = 0;
 
 // "U1".."U4" → 0..3, иначе 0xFF.

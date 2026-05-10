@@ -78,10 +78,7 @@ void MenuBridge::begin() {
   // 2. Выставить дефолты из YAML (перекроет предыдущее состояние MenuState).
   menu.initDefaults();
 
-  // 3. Убедиться, что в NVS лежат служебные __magic / __version. Без них
-  //    loadFromNVS() делает ранний return и теряет точечные apply'и (они
-  //    пишут только нужный ключ, без magic). Если магик уже есть —
-  //    ee_store_field ничего не перезапишет.
+  // 3. Записывает magic/version в NVS если отсутствуют — без них loadFromNVS() пропустит чтение.
   {
     uint32_t magic = 0, ver = 0;
     ee_read(NVS_KEY_MAGIC, magic);

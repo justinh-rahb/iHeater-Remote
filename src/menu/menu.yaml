@@ -398,15 +398,60 @@
           scope: global
           default: 120.0
 
-    - id: diagnostics
+    # ─── НАГРЕВ (портальные виджеты) ─────────────────────────
+    - id: heating
       type: submenu
-      title: { ru: "ДИАГНОСТИКА", en: "DIAGNOSTICS" }
+      title: { ru: "НАГРЕВ", en: "HEATING" }
       children:
-        - id: diag_enabled
+        - id: heat_start
+          type: action
+          title: { ru: "ВКЛЮЧИТЬ", en: "HEAT START" }
+          on_invoke: heat_start
+          role: iheater.heat_start
+          widget: HeaterControl
+
+        - id: heat_stop
+          type: action
+          title: { ru: "ВЫКЛЮЧИТЬ", en: "HEAT STOP" }
+          on_invoke: heat_stop
+          role: iheater.heat_stop
+
+    - id: logs
+      type: submenu
+      title: { ru: "ЛОГИ", en: "LOGS" }
+      children:
+        - id: log_portal_enabled
           type: toggle
-          title: { ru: "DIAG LOG", en: "DIAG LOG" }
+          title: { ru: "ПОРТАЛ", en: "PORTAL" }
           vtype: bool
-          bind: diag_en
+          bind: log_portal
+          persist: true
+          scope: global
+          default: false
+
+        - id: log_printer_enabled
+          type: toggle
+          title: { ru: "ПРИНТЕР", en: "PRINTER" }
+          vtype: bool
+          bind: log_printer
+          persist: true
+          scope: global
+          default: false
+
+        - id: log_device_enabled
+          type: toggle
+          title: { ru: "УСТРОЙСТВО", en: "DEVICE" }
+          vtype: bool
+          bind: log_device
+          persist: true
+          scope: global
+          default: false
+
+        - id: log_debug_enabled
+          type: toggle
+          title: { ru: "DEBUG", en: "DEBUG" }
+          vtype: bool
+          bind: log_debug
           persist: true
           scope: global
           default: false
