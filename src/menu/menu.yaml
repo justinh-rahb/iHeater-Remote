@@ -1,0 +1,481 @@
+# ===========================================
+# iHeater Link menu
+# Source of truth for generated menu files.
+# IMPORTANT:
+# - units_count must stay second from the end
+# - language must stay last
+# ===========================================
+
+- id: root
+  type: submenu
+  title: { ru: "IHEATER LINK", en: "IHEATER LINK" }
+  children:
+    - id: portal
+      type: submenu
+      title: { ru: "ПОРТАЛ", en: "PORTAL" }
+      children:
+        - id: start_claim
+          type: action
+          title: { ru: "СВЯЗАТЬ", en: "CLAIM" }
+          on_invoke: start_claim
+
+    - id: connections
+      type: submenu
+      title: { ru: "ПОДКЛЮЧЕНИЯ", en: "CONNECTIONS" }
+      children:
+        # Только один из трёх может быть активным одновременно —
+        # эксклюзивность обеспечивает MenuBridge::applySetCommand
+        # (сбрасывает остальные _en при включении одного).
+        - id: bambu_enabled
+          type: toggle
+          title: { ru: "BAMBU", en: "BAMBU" }
+          vtype: bool
+          bind: bambu_en
+          role: iheater.bambu_enabled
+          persist: true
+          scope: global
+          default: false
+
+        - id: moon_enabled
+          type: toggle
+          title: { ru: "MOONRAKER", en: "MOONRAKER" }
+          vtype: bool
+          bind: moon_en
+          role: iheater.moonraker_enabled
+          persist: true
+          scope: global
+          default: false
+
+        - id: ha_enabled
+          type: toggle
+          title: { ru: "HOME ASSISTANT", en: "HOME ASSISTANT" }
+          vtype: bool
+          bind: ha_en
+          role: iheater.ha_enabled
+          persist: true
+          scope: global
+          default: false
+
+    - id: materials
+      type: submenu
+      title: { ru: "МАТЕРИАЛЫ", en: "MATERIALS" }
+      children:
+        - id: iheater_link_pla_temp
+          type: value
+          title: { ru: "PLA", en: "PLA" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 90
+          step: 1
+          bind: mat_pla
+          persist: true
+          scope: global
+          default: 45.0
+
+        - id: iheater_link_petg_temp
+          type: value
+          title: { ru: "PETG", en: "PETG" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 90
+          step: 1
+          bind: mat_petg
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_abs_temp
+          type: value
+          title: { ru: "ABS", en: "ABS" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 90
+          step: 1
+          bind: mat_abs
+          persist: true
+          scope: global
+          default: 60.0
+
+        - id: iheater_link_asa_temp
+          type: value
+          title: { ru: "ASA", en: "ASA" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 90
+          step: 1
+          bind: mat_asa
+          persist: true
+          scope: global
+          default: 65.0
+
+        - id: iheater_link_pc_temp
+          type: value
+          title: { ru: "PC", en: "PC" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 90
+          step: 1
+          bind: mat_pc
+          persist: true
+          scope: global
+          default: 70.0
+
+        - id: iheater_link_pa_temp
+          type: value
+          title: { ru: "PA / NYLON", en: "PA / NYLON" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pa
+          persist: true
+          scope: global
+          default: 70.0
+
+        - id: iheater_link_pa6_temp
+          type: value
+          title: { ru: "PA6", en: "PA6" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pa6
+          persist: true
+          scope: global
+          default: 60.0
+
+        - id: iheater_link_pa11_temp
+          type: value
+          title: { ru: "PA11", en: "PA11" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pa11
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_pa12_temp
+          type: value
+          title: { ru: "PA12", en: "PA12" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pa12
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_pa66_temp
+          type: value
+          title: { ru: "PA66", en: "PA66" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pa66
+          persist: true
+          scope: global
+          default: 70.0
+
+        - id: iheater_link_pmma_temp
+          type: value
+          title: { ru: "PMMA", en: "PMMA" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pmma
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_pom_temp
+          type: value
+          title: { ru: "POM", en: "POM" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pom
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_pp_temp
+          type: value
+          title: { ru: "PP", en: "PP" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pp
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_ps_temp
+          type: value
+          title: { ru: "PS", en: "PS" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_ps
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_pvdf_temp
+          type: value
+          title: { ru: "PVDF", en: "PVDF" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pvdf
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_tpi_temp
+          type: value
+          title: { ru: "TPI", en: "TPI" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_tpi
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_pbt_temp
+          type: value
+          title: { ru: "PBT", en: "PBT" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pbt
+          persist: true
+          scope: global
+          default: 50.0
+
+        - id: iheater_link_ppe_temp
+          type: value
+          title: { ru: "PPE", en: "PPE" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_ppe
+          persist: true
+          scope: global
+          default: 80.0
+
+        - id: iheater_link_pei_temp
+          type: value
+          title: { ru: "PEI", en: "PEI" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pei
+          persist: true
+          scope: global
+          default: 100.0
+
+        - id: iheater_link_pekk_temp
+          type: value
+          title: { ru: "PEKK", en: "PEKK" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pekk
+          persist: true
+          scope: global
+          default: 100.0
+
+        - id: iheater_link_pes_temp
+          type: value
+          title: { ru: "PES", en: "PES" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pes
+          persist: true
+          scope: global
+          default: 100.0
+
+        - id: iheater_link_ppa_temp
+          type: value
+          title: { ru: "PPA", en: "PPA" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_ppa
+          persist: true
+          scope: global
+          default: 100.0
+
+        - id: iheater_link_pps_temp
+          type: value
+          title: { ru: "PPS", en: "PPS" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_pps
+          persist: true
+          scope: global
+          default: 100.0
+
+        - id: iheater_link_peek_temp
+          type: value
+          title: { ru: "PEEK", en: "PEEK" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_peek
+          persist: true
+          scope: global
+          default: 110.0
+
+        - id: iheater_link_ppsu_temp
+          type: value
+          title: { ru: "PPSU", en: "PPSU" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_ppsu
+          persist: true
+          scope: global
+          default: 120.0
+
+        - id: iheater_link_psu_temp
+          type: value
+          title: { ru: "PSU", en: "PSU" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 30
+          max: 200
+          step: 1
+          bind: mat_psu
+          persist: true
+          scope: global
+          default: 120.0
+
+    # ─── НАГРЕВ (портальные виджеты) ─────────────────────────
+    - id: heating
+      type: submenu
+      title: { ru: "НАГРЕВ", en: "HEATING" }
+      children:
+        - id: heat_start
+          type: action
+          title: { ru: "ВКЛЮЧИТЬ", en: "HEAT START" }
+          on_invoke: heat_start
+          role: iheater.heat_start
+          widget: HeaterControl
+
+        - id: heat_stop
+          type: action
+          title: { ru: "ВЫКЛЮЧИТЬ", en: "HEAT STOP" }
+          on_invoke: heat_stop
+          role: iheater.heat_stop
+
+    - id: logs
+      type: submenu
+      title: { ru: "ЛОГИ", en: "LOGS" }
+      children:
+        - id: log_portal_enabled
+          type: toggle
+          title: { ru: "ПОРТАЛ", en: "PORTAL" }
+          vtype: bool
+          bind: log_portal
+          persist: true
+          scope: global
+          default: false
+
+        - id: log_printer_enabled
+          type: toggle
+          title: { ru: "ПРИНТЕР", en: "PRINTER" }
+          vtype: bool
+          bind: log_printer
+          persist: true
+          scope: global
+          default: false
+
+        - id: log_device_enabled
+          type: toggle
+          title: { ru: "УСТРОЙСТВО", en: "DEVICE" }
+          vtype: bool
+          bind: log_device
+          persist: true
+          scope: global
+          default: false
+
+        - id: log_debug_enabled
+          type: toggle
+          title: { ru: "DEBUG", en: "DEBUG" }
+          vtype: bool
+          bind: log_debug
+          persist: true
+          scope: global
+          default: false
+
+    - id: units_count
+      type: value
+      title: { ru: "КОЛ-ВО ЮНИТОВ", en: "UNITS" }
+      vtype: uint8
+      min: 1
+      max: 1
+      step: 1
+      bind: units_count
+      persist: true
+      scope: global
+      default: 1
+
+    - id: language
+      type: value
+      title: { ru: "ЯЗЫК", en: "LANGUAGE" }
+      vtype: uint8
+      min: 0
+      max: 1
+      step: 1
+      bind: language
+      persist: true
+      scope: global
+      default: 1

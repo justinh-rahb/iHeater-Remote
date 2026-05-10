@@ -1,0 +1,312 @@
+// iHeater Link — composition root.
+//
+// Read top-to-bottom. Каждый блок поднимает один слой:
+//   Platform     WiFi credentials, cloud identity   — lib/idryer-core
+//   Cloud stack  MQTT, state machine, dispatcher    — lib/idryer-core
+//   Local       LAN WS + mDNS + dual-publish helper — lib/idryer-core
+//   Integrations Bambu / HA / Moonraker             — lib/idryer-core
+//   Product      RMT output (периферия), MenuBridge, command routing — src/heater/
+//   Provisioning Improv WiFi через Serial           — здесь
+//   WebSerial    claim handshake для flasher-portal — здесь
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <ArduinoJson.h>
+#include <ImprovWiFiLibrary.h>
+
+#include <idryer_core.h>
+#include <idryer_integrations.h>
+#include <local_access/local_access.h>
+#include <local_access/device_publisher.h>
+
+#include "secrets.h"
+#include "version.h"
+
+#include "controller/RmtOutputAdapter.h"
+#include "heater/MenuBridge.h"
+#include "heater/HeaterProfile.h"
+#include "heater/command_routing.h"
+#include "heater/auto_heat.h"
+#include "heater/rmt_sweep.h"
+#include "heater/telemetry.h"
+
+// ── Платформенный слой ──────────────────────────────────────────────────────
+static idryer::ArduinoWifiStore       s_wifiStore;
+static idryer::ArduinoWifiManager     s_wifi;
+static idryer::ArduinoCredentialStore s_credentials;
+static idryer::ArduinoHttpClient      s_http;
+
+// ── Облачный стек ───────────────────────────────────────────────────────────
+static idryer::cloud::HttpApi           s_api(&s_http, IDRYER_API_BASE);
+static idryer::MqttClient               s_mqtt;
+static idryer::cloud::CloudStateMachine s_cloud(&s_wifi, &s_credentials, &s_api, &s_mqtt);
+static idryer::ActionDispatcher         s_dispatcher;
+
+// ── Локальный transport: LAN WebSocket + mDNS ───────────────────────────────
+static idryer::LocalAccess     s_local;
+static idryer::DevicePublisher s_pub(&s_mqtt, &s_local);
+
+// ── Продуктовое железо: RMT pulse output ────────────────────────────────────
+static iheaterlink::RmtOutputAdapter s_output(iheaterlink::RmtOutputConfig{});
+
+// ── Меню v3 (NVS) → MQTT-config ─────────────────────────────────────────────
+static iheaterlink::MenuBridge s_menuBridge(&s_mqtt);
+
+// ── Интеграции (HA / Bambu / Moonraker) ─────────────────────────────────────
+static idryer::cloud::LinkIntegrationsStore   s_intStore;
+static idryer::cloud::LinkIntegrationsManager s_intManager(&s_mqtt, &s_intStore);
+
+// ── IProfile-адаптер для рантайма (info/config через MenuBridge) ───────────
+//    Серийник передадим в setup() после s_credentials.load().
+static iheaterlink::HeaterProfile* s_profilePtr = nullptr;
+
+// ── Runtime ─────────────────────────────────────────────────────────────────
+//    profile инициализируем в setup() (нужен загруженный serial); сюда
+//    положим уже готовый указатель.
+static idryer::IdryerRuntime* s_runtimePtr = nullptr;
+
+// ── Improv ──────────────────────────────────────────────────────────────────
+static ImprovWiFi s_improv(&Serial);
+static bool       s_logsEnabled = false;     // Improv держит Serial до WiFi connect
+
+// ── WebSerial claim path ────────────────────────────────────────────────────
+//    Строки и команды совместимы с flasher-portal — менять нельзя.
+static char     s_currentClaimPin[10]   = "";
+static uint32_t s_claimPinExpiresIn     = 0;
+
+static void onClaimPinFromCloud(const char* pin, uint32_t expiresInSeconds, void* /*ctx*/) {
+    strncpy(s_currentClaimPin, pin, sizeof(s_currentClaimPin) - 1);
+    s_currentClaimPin[sizeof(s_currentClaimPin) - 1] = '\0';
+    s_claimPinExpiresIn = expiresInSeconds;
+
+    // Machine-readable — flasher-portal это парсит.
+    Serial.print("CLAIM_PIN:");
+    Serial.print(pin);
+    Serial.print(":");
+    Serial.println(expiresInSeconds);
+
+    // Human-readable баннер — для dev-claim через Serial Monitor.
+    Serial.println();
+    Serial.println("================================");
+    Serial.printf("  PIN: %s\n", pin);
+    Serial.println("  Введите в приложении iDryer");
+    Serial.printf("  Действителен: %u сек\n", expiresInSeconds);
+    Serial.println("================================");
+    Serial.println();
+    Serial.flush();
+
+    HAL_LOG_INFO("CLAIM", "PIN sent to Serial: %s (expires in %ds)", pin, expiresInSeconds);
+}
+
+static void triggerClaim() {
+    bool ok = s_cloud.requestClaim();
+    if (ok) {
+        if (s_cloud.getState() == idryer::cloud::CloudState::Ready) {
+            const char* serial = s_cloud.getIdentity().serialNumber;
+            Serial.printf("CLAIM_ALREADY:%s\n", serial);
+        } else {
+            Serial.println("CLAIM_STARTED:OK");
+        }
+    } else {
+        Serial.println("CLAIM_STARTED:ERROR");
+    }
+    Serial.flush();
+}
+
+static void handleWebSerialCommand(const String& line) {
+    if (line.equalsIgnoreCase("START_CLAIM") || line.equalsIgnoreCase("claim")) {
+        HAL_LOG_INFO("CLAIM", "Received '%s' command", line.c_str());
+        triggerClaim();
+    } else if (line.equalsIgnoreCase("rmt_sweep")) {
+        HAL_LOG_INFO("HEATER", "RMT sweep start");
+        iheaterlink::startRmtSweep();
+    } else if (line.equalsIgnoreCase("rmt_stop")) {
+        HAL_LOG_INFO("HEATER", "RMT sweep stop");
+        iheaterlink::stopRmtSweep();
+    }
+}
+
+static void processWebSerialCommands() {
+    if (!s_logsEnabled) return;
+    if (Serial.available() <= 0) return;
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0) handleWebSerialCommand(line);
+}
+
+// ── Improv: пользователь ввёл credentials ──────────────────────────────────
+static void onImprovConnected(const char* ssid, const char* password) {
+    s_wifiStore.save(ssid, password);
+    s_wifi.begin(ssid, password);
+}
+
+static void onImprovError(ImprovTypes::Error err) {
+    // Логи ещё в /dev/null — Improv держит Serial. Записать нечего.
+    (void)err;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+void setup() {
+    Serial.begin(115200);
+
+    // Improv держит Serial до WiFi connect — HAL логирует в /dev/null.
+    idryer::hal::initArduinoHal(nullptr);
+
+    // RMT-выход поднимаем сразу: устройство должно держать pulse=Off независимо от WiFi.
+    s_output.begin();
+
+    // Improv.
+    s_improv.setDeviceInfo(
+        ImprovTypes::ChipFamily::CF_ESP32_C3,
+        "iHeater Link",
+        VERSION_STR,
+        "iHeater Link",
+        "");
+    s_improv.onImprovConnected(onImprovConnected);
+    s_improv.onImprovError(onImprovError);
+
+    // WiFi: сохранённые credentials имеют приоритет над WIFI_SSID/_PASSWORD.
+    char ssid[64], pass[64];
+    if (s_wifiStore.load(ssid, sizeof(ssid), pass, sizeof(pass))) {
+        s_wifi.begin(ssid, pass);
+    }
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+    else {
+        s_wifiStore.save(WIFI_SSID, WIFI_PASSWORD);
+        s_wifi.begin(WIFI_SSID, WIFI_PASSWORD);
+    }
+#endif
+
+    // Серийник: для iHeater Link это MAC ESP в формате DEVICE_AABBCCDDEEFF (uppercase).
+    // ArduinoCredentialStore::seedSerialFromMac выдаёт ровно такой формат.
+    s_credentials.seedSerialFromMac();
+
+    // Идентификация устройства — нужна для info/HA/mDNS.
+    idryer::DeviceIdentity identity;
+    s_credentials.load(identity);
+
+    // Профиль создаём ПОСЛЕ load(): передаём указатель на серийник из identity.
+    static iheaterlink::HeaterProfile s_profile(&s_menuBridge, identity.serialNumber);
+    s_profilePtr = &s_profile;
+
+    // Runtime — последняя зависимость, нужны все остальные объекты.
+    static idryer::IdryerRuntime s_runtime(&s_cloud, &s_dispatcher, s_profilePtr, &s_mqtt);
+    s_runtimePtr = &s_runtime;
+
+    // LocalAccess: mDNS до старта WS, чтобы apps могли обнаружить устройство
+    // сразу после WiFi-connect. Service `_idryer._tcp` (legacy совместим).
+    s_local.initMdns(identity.serialNumber);
+    s_local.begin(identity.serialNumber, identity.token);
+    s_local.setCommandSink(iheaterlink::handleCommand);
+    s_local.setTokenRefreshCallback([]() {
+        idryer::DeviceIdentity id;
+        s_credentials.load(id);
+        s_local.updateToken(id.token);
+    });
+
+    // Меню: NVS + дефолты + загрузка. До s_intManager.begin(), потому что
+    // setActiveConnectionCallback запускает выбранную интеграцию, а к этому
+    // моменту бюджет интеграций уже должен быть готов.
+    s_intStore.begin();
+
+    // HA-ClientId = серийник устройства (строка). На Bambu влияет тип устройства.
+    if (identity.serialNumber[0] != '\0') {
+        s_intManager.setHaClientId(identity.serialNumber);
+    }
+    s_intManager.setDeviceType(idryer::UartDeviceType::IHeaterLink);
+
+    // Авто-нагрев — VirtualChamber/Bambu колбэки → RMT.
+    iheaterlink::wireAutoHeat(&s_output);
+    s_intManager.setVirtualChamberCallback(iheaterlink::onVirtualChamberUpdate);
+    s_intManager.setBambuPrinterStatusCallback(iheaterlink::onBambuPrinterStatusUpdate);
+
+    // Меню → setActive интеграции при изменении toggle bambu_en/moon_en/ha_en.
+    s_menuBridge.setActiveConnectionCallback([](iheaterlink::ActiveConnection kind) {
+        using AI = idryer::cloud::ActiveIntegration;
+        AI target = AI::None;
+        switch (kind) {
+            case iheaterlink::ActiveConnection::Bambu:     target = AI::Bambu;     break;
+            case iheaterlink::ActiveConnection::Moonraker: target = AI::Moonraker; break;
+            case iheaterlink::ActiveConnection::Ha:        target = AI::Ha;        break;
+            case iheaterlink::ActiveConnection::None:      target = AI::None;      break;
+        }
+        HAL_LOG_INFO("HEATER", "Menu → setActive: %d", (int)target);
+        s_intManager.setActive(target);
+    });
+    s_menuBridge.begin();
+    s_intManager.begin();
+
+    // Sweep — выходной адаптер.
+    iheaterlink::wireRmtSweep(&s_output);
+
+    // Telemetry — периодическая публикация (5 секунд) в MQTT + Local WS.
+    iheaterlink::wireTelemetry(&s_pub, &s_intManager, &s_output);
+
+    // Командный путь — единственная точка расширения для MQTT и Local WS.
+    iheaterlink::wireCommandRouting(&s_menuBridge, &s_intManager, &s_output);
+    s_runtime.setCommandHandler(iheaterlink::handleCommand);
+
+    // Cloud-колбэки.
+    s_cloud.setClaimPinCallback(onClaimPinFromCloud, nullptr);
+
+    // Time-sync делается через ISO 8601 `timestamp` в любой portal-команде
+    // (см. mqtt_contract.yaml rules.timestamp_convention) — IdryerRuntime
+    // парсит и применяет settimeofday в onMqttCommand до роутинга.
+    // NTP не используется: TLS handshake к portal.idryer.org работает без
+    // валидного RTC (mbedtls не валидирует cert validity period в этой сборке),
+    // а local-WS клиенты подключаются без TLS вообще.
+
+    // Авто-claim для standalone устройства.
+    s_cloud.setUnclaimedCallback([](void*) { s_cloud.requestClaim(); }, nullptr);
+
+    s_runtime.begin();
+}
+
+void loop() {
+    if (s_runtimePtr) s_runtimePtr->loop();
+    s_local.loop();
+    s_intManager.loop();
+
+    // Sweep имеет приоритет над авто-нагревом и командами:
+    // пока активен — никакая другая логика на RMT не пишет.
+    if (iheaterlink::isRmtSweepActive()) {
+        iheaterlink::rmtSweepLoop();
+    } else {
+        iheaterlink::commandRoutingTick();   // авто-Off по deadline drying
+    }
+
+    // Telemetry дросселирует себя сама (раз в 5 секунд).
+    iheaterlink::telemetryLoop();
+
+    if (!s_logsEnabled) {
+        s_improv.handleSerial();
+        if (WiFi.status() == WL_CONNECTED) {
+            s_logsEnabled = true;
+            idryer::hal::initArduinoHal(&Serial);
+
+            const auto& id = s_cloud.getIdentity();
+
+            Serial.println("\n========================================");
+            Serial.printf("[BOOT] iHeater Link FW=%s\n", VERSION_STR);
+            Serial.println("[BOOT] Logs enabled after WiFi config");
+            Serial.printf("[BOOT] NVS identity: serial=%s token=%s deviceId=%s\n",
+                          id.hasSerialNumber() ? id.serialNumber : "(none)",
+                          id.hasToken() ? "YES" : "no",
+                          id.hasDeviceId() ? id.deviceId : "(none)");
+            Serial.println("[BOOT] Dev-claim: type 'claim' in Serial Monitor to trigger");
+            Serial.println("========================================");
+            HAL_LOG_INFO("CLOUD", "WiFi connected, IP: %s, RSSI: %d dBm",
+                         WiFi.localIP().toString().c_str(), WiFi.RSSI());
+
+            // Dev-автоклэйм: если в NVS нет токена — стартуем claim сразу.
+            if (!id.hasToken()) {
+                Serial.println("[DEV] No token in NVS — auto claim");
+                Serial.flush();
+                triggerClaim();
+            }
+        }
+    } else {
+        processWebSerialCommands();
+    }
+}
