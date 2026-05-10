@@ -39,7 +39,6 @@ public:
   float mat_peek = 110.0f;
   float mat_ppsu = 120.0f;
   float mat_psu = 120.0f;
-  bool diag_en = false;
   bool log_portal = false;
   bool log_printer = false;
   bool log_device = false;

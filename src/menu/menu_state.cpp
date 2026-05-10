@@ -38,7 +38,6 @@ void MenuState::initDefaults(){
   this->mat_peek = 110.0f;
   this->mat_ppsu = 120.0f;
   this->mat_psu = 120.0f;
-  this->diag_en = false;
   this->log_portal = false;
   this->log_printer = false;
   this->log_device = false;
@@ -88,7 +87,6 @@ void MenuState::loadFromNVS(){
   ee_read("mat_peek", this->mat_peek);
   ee_read("mat_ppsu", this->mat_ppsu);
   ee_read("mat_psu", this->mat_psu);
-  ee_read("diag_en", this->diag_en);
   ee_read("log_portal", this->log_portal);
   ee_read("log_printer", this->log_printer);
   ee_read("log_device", this->log_device);
@@ -133,7 +131,6 @@ void MenuState::saveToNVS(){
   ee_store_field("mat_peek", this->mat_peek);
   ee_store_field("mat_ppsu", this->mat_ppsu);
   ee_store_field("mat_psu", this->mat_psu);
-  ee_store_field("diag_en", this->diag_en);
   ee_store_field("log_portal", this->log_portal);
   ee_store_field("log_printer", this->log_printer);
   ee_store_field("log_device", this->log_device);

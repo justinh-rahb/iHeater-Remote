@@ -44,7 +44,6 @@ const MenuBinding g_bindings[] = {
   {MENU_IHEATER_LINK_PEEK_TEMP, "mat_peek", VT_F32, (void*)&menu.mat_peek, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_IHEATER_LINK_PPSU_TEMP, "mat_ppsu", VT_F32, (void*)&menu.mat_ppsu, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_IHEATER_LINK_PSU_TEMP, "mat_psu", VT_F32, (void*)&menu.mat_psu, true, nullptr, false, SCOPE_GLOBAL},
-  {MENU_DIAG_ENABLED, "diag_en", VT_BOOL, (void*)&menu.diag_en, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_LOG_PORTAL_ENABLED, "log_portal", VT_BOOL, (void*)&menu.log_portal, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_LOG_PRINTER_ENABLED, "log_printer", VT_BOOL, (void*)&menu.log_printer, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_LOG_DEVICE_ENABLED, "log_device", VT_BOOL, (void*)&menu.log_device, true, nullptr, false, SCOPE_GLOBAL},

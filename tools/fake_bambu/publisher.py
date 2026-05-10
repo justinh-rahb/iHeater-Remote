@@ -6,7 +6,7 @@ Fake Bambu publisher — шлёт report-payloads в device/{SERIAL}/report.
 chamber_target всегда 0 — целевая температура камеры берётся из типа
 филамента активного трея AMS, через menu.mat_<type> на iHeater-link.
 
-Лестница по 30 сек:
+Лестница по 15 сек:
   PREPARE (PLA) → RUNNING ams (PLA) → RUNNING vt_tray (PETG)
                 → RUNNING ams_ht (PA-CF) → FINISH (пусто) → ...
 
@@ -41,7 +41,7 @@ SERIAL         = os.environ.get("FAKE_BAMBU_SERIAL", "FAKE_BAMBU_001")
 LAN_CODE       = os.environ.get("FAKE_BAMBU_LAN", "12345678")
 CERT_PATH      = os.environ.get("FAKE_BAMBU_CERT",
                                 os.path.join(os.path.dirname(__file__), "cert.pem"))
-# Лестница: каждый источник филамента → свой тип, по 30 сек.
+# Лестница: каждый источник филамента → свой тип, по 15 сек.
 #
 #   ("ams",      "PLA")    — обычный AMS slot 0 (tray_now="0")
 #   ("vt_tray",  "PETG")   — внешний держатель катушки (tray_now="254")
@@ -54,7 +54,7 @@ PATTERN = [
     ("ams_ht",  "PA-CF"),
     ("finish",  None),
 ]
-STEP_SECONDS = 30
+STEP_SECONDS = 15
 
 REPORT_TOPIC  = f"device/{SERIAL}/report"
 REQUEST_TOPIC = f"device/{SERIAL}/request"

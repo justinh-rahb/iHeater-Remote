@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MENU_META_COUNT 46
+#define MENU_META_COUNT 44
 #define MENU_LANG_COUNT 2
 
 typedef enum {
@@ -53,7 +53,7 @@ typedef struct {
 static const MenuMeta g_menu_meta[MENU_META_COUNT] = {
     // [0] root
     { 0, { "IHEATER LINK", "IHEATER LINK" }, { nullptr, nullptr },
-      META_SUBMENU, -1, 1, 8,
+      META_SUBMENU, -1, 1, 7,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       nullptr, nullptr },
     // [1] portal
@@ -236,48 +236,38 @@ static const MenuMeta g_menu_meta[MENU_META_COUNT] = {
       META_ACTION, 34, -1, 0,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       "iheater.heat_stop", nullptr },
-    // [37] diagnostics
-    { 37, { "ДИАГНОСТИКА", "DIAGNOSTICS" }, { nullptr, nullptr },
-      META_SUBMENU, 0, 38, 1,
+    // [37] logs
+    { 37, { "ЛОГИ", "LOGS" }, { nullptr, nullptr },
+      META_SUBMENU, 0, 38, 4,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       nullptr, nullptr },
-    // [38] diag_enabled
-    { 38, { "DIAG LOG", "DIAG LOG" }, { nullptr, nullptr },
+    // [38] log_portal_enabled
+    { 38, { "ПОРТАЛ", "PORTAL" }, { nullptr, nullptr },
       META_TOGGLE, 37, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [39] logs
-    { 39, { "ЛОГИ", "LOGS" }, { nullptr, nullptr },
-      META_SUBMENU, 0, 40, 4,
-      META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
-      nullptr, nullptr },
-    // [40] log_portal_enabled
-    { 40, { "ПОРТАЛ", "PORTAL" }, { nullptr, nullptr },
-      META_TOGGLE, 39, -1, 0,
+    // [39] log_printer_enabled
+    { 39, { "ПРИНТЕР", "PRINTER" }, { nullptr, nullptr },
+      META_TOGGLE, 37, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [41] log_printer_enabled
-    { 41, { "ПРИНТЕР", "PRINTER" }, { nullptr, nullptr },
-      META_TOGGLE, 39, -1, 0,
+    // [40] log_device_enabled
+    { 40, { "УСТРОЙСТВО", "DEVICE" }, { nullptr, nullptr },
+      META_TOGGLE, 37, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [42] log_device_enabled
-    { 42, { "УСТРОЙСТВО", "DEVICE" }, { nullptr, nullptr },
-      META_TOGGLE, 39, -1, 0,
+    // [41] log_debug_enabled
+    { 41, { "DEBUG", "DEBUG" }, { nullptr, nullptr },
+      META_TOGGLE, 37, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [43] log_debug_enabled
-    { 43, { "DEBUG", "DEBUG" }, { nullptr, nullptr },
-      META_TOGGLE, 39, -1, 0,
-      META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
-      nullptr, nullptr },
-    // [44] units_count
-    { 44, { "КОЛ-ВО ЮНИТОВ", "UNITS" }, { nullptr, nullptr },
+    // [42] units_count
+    { 42, { "КОЛ-ВО ЮНИТОВ", "UNITS" }, { nullptr, nullptr },
       META_VALUE, 0, -1, 0,
       META_VT_U8, 1.0f, 1.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [45] language
-    { 45, { "ЯЗЫК", "LANGUAGE" }, { nullptr, nullptr },
+    // [43] language
+    { 43, { "ЯЗЫК", "LANGUAGE" }, { nullptr, nullptr },
       META_VALUE, 0, -1, 0,
       META_VT_U8, 0.0f, 1.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
