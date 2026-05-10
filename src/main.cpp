@@ -187,6 +187,10 @@ void setup() {
 
   // 2. Поднять весь SDK-стек: WiFi/Improv → claim → MQTT → integrations →
   // LAN-WS. После begin() устройство уже тянется к облаку.
+  device().onClaimPin([](const char* pin, uint32_t expires) {
+      Serial.printf("CLAIM_PIN:%s:%lu\n", pin, expires);
+      Serial.flush();
+  });
   device().begin();
 
   // 3. MenuBridge: загружает NVS, эмитит активную интеграцию. Колбэк
