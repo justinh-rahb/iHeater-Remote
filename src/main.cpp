@@ -181,30 +181,20 @@ static void applyLogFlags() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void setup() {
-  // WiFi.persistent(false) ПЕРВОЙ строкой — до любых NVS-операций (MenuBridge,
-  // device().begin()). Иначе Arduino пишет WiFi-config в NVS внутри WiFi.begin()
-  // (Improv flow), конфликтует с менюшным NVS-handle и Improv таймаутит.
+  // WiFi.persistent(false) ПЕРВОЙ строкой — Arduino не пишет WiFi-config в NVS.
   WiFi.persistent(false);
 
-  Serial.begin(115200);
-
-  // 1. RMT-выход поднимаем первым: устройство держит pulse=Off независимо
-  // от состояния WiFi/MQTT.
-  s_output.begin();
-
-  // 2. Поднять весь SDK-стек: WiFi/Improv → claim → MQTT → integrations →
-  // LAN-WS. После begin() устройство уже тянется к облаку.
+  // SDK + Improv РАНО — handleSerial должен быть готов перехватить байты от portal
+  // ДО того как остальной setup съест CPU. Тонкий setup = стабильный Improv.
   device().onClaimPin([](const char* pin, uint32_t expires) {
       Serial.printf("CLAIM_PIN:%s:%lu\n", pin, expires);
       Serial.flush();
   });
-  // ВАЖНО: menu_nvs_begin() ДО device.begin() — иначе открытие NVS-handle
-  // ПОСЛЕ Link::begin() конфликтует с Arduino WiFi-NVS-операциями и Improv
-  // tryConnectToWifi таймаутит. MenuBridge.begin() ниже зовёт menu_nvs_begin()
-  // повторно — но handle уже открыт, это no-op.
-  menu_nvs_begin();
-
+  menu_nvs_begin();   // NVS namespace до device.begin (известный init contract)
   device().begin();
+
+  // RMT и всё остальное — после.
+  s_output.begin();
 
   // 3. MenuBridge: загружает NVS, эмитит активную интеграцию. Колбэк
   // назначается ДО begin().
