@@ -2,6 +2,7 @@
 // onCommand-обработчики.
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include <ArduinoJson.h>
 #include <iDryer.h>
 #include <idryer_integrations.h>
@@ -15,6 +16,7 @@
 #include "heater/auto_heat.h"
 
 #include <menu_state.h>         // menu.log_portal / log_printer / log_device / log_debug
+#include <menu_nvs_io.h>        // menu_nvs_begin
 #include <hal/hal_types.h>      // g_hal->logger->setLevel()
 
 // ── Конфигурация устройства ──────────────────────────────────────────────────
@@ -179,6 +181,11 @@ static void applyLogFlags() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void setup() {
+  // WiFi.persistent(false) ПЕРВОЙ строкой — до любых NVS-операций (MenuBridge,
+  // device().begin()). Иначе Arduino пишет WiFi-config в NVS внутри WiFi.begin()
+  // (Improv flow), конфликтует с менюшным NVS-handle и Improv таймаутит.
+  WiFi.persistent(false);
+
   Serial.begin(115200);
 
   // 1. RMT-выход поднимаем первым: устройство держит pulse=Off независимо
@@ -191,6 +198,12 @@ void setup() {
       Serial.printf("CLAIM_PIN:%s:%lu\n", pin, expires);
       Serial.flush();
   });
+  // ВАЖНО: menu_nvs_begin() ДО device.begin() — иначе открытие NVS-handle
+  // ПОСЛЕ Link::begin() конфликтует с Arduino WiFi-NVS-операциями и Improv
+  // tryConnectToWifi таймаутит. MenuBridge.begin() ниже зовёт menu_nvs_begin()
+  // повторно — но handle уже открыт, это no-op.
+  menu_nvs_begin();
+
   device().begin();
 
   // 3. MenuBridge: загружает NVS, эмитит активную интеграцию. Колбэк
