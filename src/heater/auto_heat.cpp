@@ -29,7 +29,7 @@ void setLogDecisions(bool enabled) {
 
 // VirtualChamber из Moonraker. Активен только при moon_en=true в меню.
 // Поведение: gate (autoHeat) → available → target>0 → ON, иначе OFF.
-void onVirtualChamberUpdate(const idryer::cloud::VirtualChamberData& data) {
+void onVirtualChamberUpdate(void* /*ctx*/, const idryer::cloud::VirtualChamberData& data) {
     if (!g_output) return;
 
     const bool autoHeat = menu.moon_en;
@@ -75,7 +75,7 @@ static bool bambuShouldHeat(const char* gcodeState) {
         || strcmp(gcodeState, "PREPARE") == 0;
 }
 
-void onBambuPrinterStatusUpdate(const idryer::cloud::BambuPrinterStatus& status) {
+void onBambuPrinterStatusUpdate(void* /*ctx*/, const idryer::cloud::BambuPrinterStatus& status) {
     if (!g_output) return;
 
     const bool autoHeat        = menu.bambu_en;
