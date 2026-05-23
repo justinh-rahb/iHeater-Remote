@@ -2,8 +2,8 @@
 // onCommand-обработчики.
 
 #include <Arduino.h>
-#include <WiFi.h>
 #include <ArduinoJson.h>
+#include <WiFi.h>
 #include <iDryer.h>
 #include <idryer_integrations.h>
 #include <integrations/common/link_integrations_types.h>
@@ -15,9 +15,10 @@
 #include "heater/MenuBridge.h"
 #include "heater/auto_heat.h"
 
-#include <menu_state.h>         // menu.log_portal / log_printer / log_device / log_debug
-#include <menu_nvs_io.h>        // menu_nvs_begin
-#include <hal/hal_types.h>      // g_hal->logger->setLevel()
+#include "version.h"       // VERSION_STR для Config.firmwareVersion
+#include <hal/hal_types.h> // g_hal->logger->setLevel()
+#include <menu_nvs_io.h>   // menu_nvs_begin
+#include <menu_state.h> // menu.log_portal / log_printer / log_device / log_debug
 
 // ── Конфигурация устройства ──────────────────────────────────────────────────
 // Заполняется один раз при портировании прошивки на новый продукт.
@@ -54,7 +55,7 @@ static const iDryer::Config CFG = {
 
     // ── Идентификация (отображается на портале) ──────────────────────────────
     .hardwareVersion = "LINK-v1",
-    .firmwareVersion = "1.0.0",
+    .firmwareVersion = VERSION_STR,
 
     // Название продукта — отображается в колонке «Тип» на странице устройств.
     // Задаётся свободно: любая строка UTF-8.
@@ -166,16 +167,16 @@ static void enrichTelemetry(JsonObject root) {
 // Синхронизирует флаги логирования из меню → клиентов интеграций.
 // Вызывается при старте (после MenuBridge::begin) и после каждого set-команды.
 static void applyLogFlags() {
-    s_logPortal = (bool)menu.log_portal;
-    auto* mgr = device().integrationsManager();
-    if (mgr) mgr->setLogPayloads((bool)menu.log_printer);
-    iheaterlink::setLogDecisions((bool)menu.log_device);
-    if (idryer::hal::g_hal && idryer::hal::g_hal->logger) {
-        idryer::hal::g_hal->logger->setLevel(
-            menu.log_debug
-                ? idryer::hal::LogLevel::Debug
-                : idryer::hal::LogLevel::Info);
-    }
+  s_logPortal = (bool)menu.log_portal;
+  auto *mgr = device().integrationsManager();
+  if (mgr)
+    mgr->setLogPayloads((bool)menu.log_printer);
+  iheaterlink::setLogDecisions((bool)menu.log_device);
+  if (idryer::hal::g_hal && idryer::hal::g_hal->logger) {
+    idryer::hal::g_hal->logger->setLevel(menu.log_debug
+                                             ? idryer::hal::LogLevel::Debug
+                                             : idryer::hal::LogLevel::Info);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,13 +185,14 @@ void setup() {
   // WiFi.persistent(false) ПЕРВОЙ строкой — Arduino не пишет WiFi-config в NVS.
   WiFi.persistent(false);
 
-  // SDK + Improv РАНО — handleSerial должен быть готов перехватить байты от portal
-  // ДО того как остальной setup съест CPU. Тонкий setup = стабильный Improv.
-  device().onClaimPin([](const char* pin, uint32_t expires) {
-      Serial.printf("CLAIM_PIN:%s:%lu\n", pin, expires);
-      Serial.flush();
+  // SDK + Improv РАНО — handleSerial должен быть готов перехватить байты от
+  // portal ДО того как остальной setup съест CPU. Тонкий setup = стабильный
+  // Improv.
+  device().onClaimPin([](const char *pin, uint32_t expires) {
+    Serial.printf("CLAIM_PIN:%s:%lu\n", pin, expires);
+    Serial.flush();
   });
-  menu_nvs_begin();   // NVS namespace до device.begin (известный init contract)
+  menu_nvs_begin(); // NVS namespace до device.begin (известный init contract)
   device().begin();
 
   // RMT и всё остальное — после.
@@ -222,7 +224,7 @@ void setup() {
         mgr->setActive(target);
       });
   s_menuBridgeInst.begin(); // загружает NVS, эмитит активную интеграцию
-  applyLogFlags();          // синхронизирует log_portal/log_printer/log_device из NVS
+  applyLogFlags(); // синхронизирует log_portal/log_printer/log_device из NVS
 
   // 4. Авто-нагрев: VirtualChamber (Moonraker) и BambuPrinterStatus → RMT.
   //    wireAutoHeat сохраняет указатель на s_output до подписки колбэков.
