@@ -25,9 +25,9 @@ void wireAutoHeat(RmtOutputAdapter* output);
 void setLogDecisions(bool enabled);
 
 /// Колбэк, регистрируемый в LinkIntegrationsManager::setVirtualChamberCallback.
-void onVirtualChamberUpdate(const idryer::cloud::VirtualChamberData& data);
+void onVirtualChamberUpdate(void* ctx, const idryer::cloud::VirtualChamberData& data);
 
 /// Колбэк, регистрируемый в LinkIntegrationsManager::setBambuPrinterStatusCallback.
-void onBambuPrinterStatusUpdate(const idryer::cloud::BambuPrinterStatus& status);
+void onBambuPrinterStatusUpdate(void* ctx, const idryer::cloud::BambuPrinterStatus& status);
 
 } // namespace iheaterlink
