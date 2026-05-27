@@ -15,12 +15,32 @@
 namespace iheaterlink {
 
 namespace {
-RmtOutputAdapter* g_output       = nullptr;
-bool              g_logDecisions = false;
+RmtOutputAdapter* g_output           = nullptr;
+bool              g_logDecisions     = false;
+SessionCallback   g_bambuSession     = nullptr;
+SessionCallback   g_moonrakerSession = nullptr;
+// Дедуп: вызываем session-колбэк только при смене heating/target. Иначе на
+// каждом push_status (Bambu ~1 Hz) / Klipper update триггерили бы
+// publishStatusNow и засоряли MQTT портала. initialized=true сразу — чтобы
+// первый Off на старте не дёргал лишний applyStop.
+struct SessionPrev {
+    bool  heating = false;
+    float target  = 0.0f;
+};
+SessionPrev g_bambuPrev;
+SessionPrev g_moonrakerPrev;
 }
 
 void wireAutoHeat(RmtOutputAdapter* output) {
     g_output = output;
+}
+
+void wireBambuSession(SessionCallback cb) {
+    g_bambuSession = cb;
+}
+
+void wireMoonrakerSession(SessionCallback cb) {
+    g_moonrakerSession = cb;
 }
 
 void setLogDecisions(bool enabled) {
@@ -43,6 +63,19 @@ void onVirtualChamberUpdate(void* /*ctx*/, const idryer::cloud::VirtualChamberDa
         cmd.targetTempC = data.target;
     }
     g_output->apply(cmd);
+
+    // Sync portal session: см. подробный комментарий в onBambuPrinterStatusUpdate.
+    const bool  nowHeating = (cmd.mode == ControllerOutputMode::TargetTemperature);
+    const float nowTarget  = cmd.targetTempC;
+    const float dT         = nowTarget - g_moonrakerPrev.target;
+    const bool  targetChanged = (dT > 0.01f) || (dT < -0.01f);
+    const bool  changed = (g_moonrakerPrev.heating != nowHeating)
+                       || (nowHeating && targetChanged);
+    if (changed && g_moonrakerSession) {
+        g_moonrakerSession(nowTarget, nowHeating);
+    }
+    g_moonrakerPrev.heating = nowHeating;
+    g_moonrakerPrev.target  = nowTarget;
 
     if (g_logDecisions) {
         HAL_LOG_INFO("HEATER",
@@ -115,6 +148,22 @@ void onBambuPrinterStatusUpdate(void* /*ctx*/, const idryer::cloud::BambuPrinter
     }
 
     g_output->apply(cmd);
+
+    // Sync portal session: при смене heating/target дёргаем колбэк, который
+    // обновит device().status.mode[] (Drying/Idle), sessionNum, targetTempC и
+    // позовёт publishStatusNow. Без этого нагрев от Bambu не виден на портале
+    // как сессия — нет push, нет истории.
+    const bool  nowHeating = (cmd.mode == ControllerOutputMode::TargetTemperature);
+    const float nowTarget  = cmd.targetTempC;
+    const float dT         = nowTarget - g_bambuPrev.target;
+    const bool  targetChanged = (dT > 0.01f) || (dT < -0.01f);
+    const bool  changed = (g_bambuPrev.heating != nowHeating)
+                       || (nowHeating && targetChanged);
+    if (changed && g_bambuSession) {
+        g_bambuSession(nowTarget, nowHeating);
+    }
+    g_bambuPrev.heating = nowHeating;
+    g_bambuPrev.target  = nowTarget;
 
     if (g_logDecisions) {
         HAL_LOG_INFO("HEATER",

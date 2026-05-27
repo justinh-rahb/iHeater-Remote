@@ -17,6 +17,8 @@
 
 #include "version.h"       // VERSION_STR для Config.firmwareVersion
 #include <hal/hal_types.h> // g_hal->logger->setLevel()
+#include <menu_bindings.h> // menu_apply_by_bind
+#include <menu_meta.h>     // g_menu_meta[].min_val / max_val для HA-number
 #include <menu_nvs_io.h>   // menu_nvs_begin
 #include <menu_state.h> // menu.log_portal / log_printer / log_device / log_debug
 
@@ -85,14 +87,6 @@ static iDryer::Link &device() {
   return instance;
 }
 
-// "U1"–"U4" → 0–3; иначе → 0 (нет unitId → первый юнит).
-static uint8_t pickUnit(JsonObjectConst data) {
-  const char *s = data["unitId"] | (const char *)nullptr;
-  if (s && s[0] == 'U' && s[1] >= '1' && s[1] <= '4' && s[2] == '\0')
-    return static_cast<uint8_t>(s[1] - '1');
-  return 0;
-}
-
 // Применяет нагрев: RMT-команда + обновление status + publishStatusNow().
 // duration=0 → без таймера.
 static void applyHeating(uint8_t u, float targetTempC, uint32_t durationS,
@@ -127,26 +121,36 @@ static void applyStop(uint8_t u) {
   device().publishStatusNow();
 }
 
-// ── Парсинг target temperature из payload ────────────────────────────────────
-// Портал шлёт {params:{temperature, duration}}, legacy — {targetTemperature}.
-static float pickTemp(JsonObjectConst data) {
-  JsonObjectConst params = data["params"];
-  if (params && params["temperature"].is<float>())
-    return params["temperature"].as<float>();
-  if (data["targetTemperature"].is<float>())
-    return data["targetTemperature"].as<float>();
-  return 0.0f;
+// menu_protocol_v1: action-callback'и для invoke {id} из инспектора меню.
+// Перекрывают weak-stub'ы в menu_callbacks_weak.cpp. Читают параметры из
+// меню (persist в NVS), позволяя пользователю менять их с того же экрана.
+// heat_duration в минутах; 0 = греть бесконечно (без таймера auto-off).
+extern "C" void heat_start(void) {
+  applyHeating(0, menu.heat_temp, (uint32_t)menu.heat_duration * 60u,
+               iDryer::UnitMode::Drying, "menu:heat_start");
 }
 
-// Длительность в секундах (портал шлёт минуты).
-static uint32_t pickDurationSec(JsonObjectConst data) {
-  JsonObjectConst params = data["params"];
-  uint32_t durMin = 0;
-  if (params && params["duration"].is<uint32_t>())
-    durMin = params["duration"].as<uint32_t>();
-  else if (data["durationMinutes"].is<uint32_t>())
-    durMin = data["durationMinutes"].as<uint32_t>();
-  return durMin * 60u;
+extern "C" void heat_stop(void) { applyStop(0); }
+
+// Последний опубликованный Bambu progress — для триггера publishStatusNow
+// при значимом изменении (≥1%). 0xFF = «ещё не публиковали».
+static uint8_t s_lastPublishedBambuProgress = 0xFF;
+
+// Добавляет units[0].progressPercent из активной интеграции (Bambu) в status.
+// Hook вызывается из Link::publishStatusNow перед отправкой payload.
+static void enrichStatus(JsonObject root) {
+  using AI = idryer::cloud::ActiveIntegration;
+  auto *mgr = device().integrationsManager();
+  if (!mgr || mgr->getActive() != AI::Bambu)
+    return;
+  if (device().status.mode[0] != iDryer::UnitMode::Drying)
+    return;
+  JsonArray units = root["units"];
+  if (units.isNull() || units.size() == 0)
+    return;
+  const auto &ps = mgr->bambuPrinterStatus();
+  units[0]["progressPercent"] = ps.progressPercent;
+  s_lastPublishedBambuProgress = ps.progressPercent;
 }
 
 // Добавляет deviceType/active/outputMode/targetTempC в каждый пакет телеметрии.
@@ -229,12 +233,28 @@ void setup() {
   // 4. Авто-нагрев: VirtualChamber (Moonraker) и BambuPrinterStatus → RMT.
   //    wireAutoHeat сохраняет указатель на s_output до подписки колбэков.
   iheaterlink::wireAutoHeat(&s_output);
+  iheaterlink::wireBambuSession([](float targetTempC, bool heating) {
+    if (heating) {
+      applyHeating(0, targetTempC, 0, iDryer::UnitMode::Drying, "Bambu");
+    } else {
+      applyStop(0);
+    }
+  });
+  iheaterlink::wireMoonrakerSession([](float targetTempC, bool heating) {
+    if (heating) {
+      applyHeating(0, targetTempC, 0, iDryer::UnitMode::Drying, "Klipper");
+    } else {
+      applyStop(0);
+    }
+  });
   mgr->setVirtualChamberCallback(iheaterlink::onVirtualChamberUpdate);
   mgr->setBambuPrinterStatusCallback(iheaterlink::onBambuPrinterStatusUpdate);
 
   // 5. Добавляем deviceType/active/outputMode/targetTempC в каждый publish
   // телеметрии.
   device().onTelemetryPublish(enrichTelemetry);
+  // Аналогично — обогащаем status (units[0].progressPercent от Bambu).
+  device().onStatusPublish(enrichStatus);
 
   // 6. Периодические задачи через cooperative scheduler фасада.
   //    Тик elapsedS раз в секунду, пока режим активен.
@@ -242,6 +262,22 @@ void setup() {
     const auto m = device().status.mode[0];
     if (m == iDryer::UnitMode::Drying || m == iDryer::UnitMode::Storage)
       device().status.elapsedS[0]++;
+  });
+  //    Триггер publishStatusNow при ∆Bambu progress ≥ 1% — иначе status
+  //    шлётся только при смене mode/target и прогресс «застывает». 1 Гц
+  //    совпадает с частотой push_status от Bambu, спама не будет.
+  device().every(1000, []() {
+    using AI = idryer::cloud::ActiveIntegration;
+    auto *mgr = device().integrationsManager();
+    if (!mgr || mgr->getActive() != AI::Bambu)
+      return;
+    if (device().status.mode[0] != iDryer::UnitMode::Drying)
+      return;
+    const uint8_t cur = mgr->bambuPrinterStatus().progressPercent;
+    const uint8_t last = s_lastPublishedBambuProgress;
+    const uint8_t diff = (cur > last) ? (cur - last) : (last - cur);
+    if (last == 0xFF || diff >= 1)
+      device().publishStatusNow();
   });
   //    Авто-Off по deadline drying — раз в полсекунды проверяем дедлайн.
   device().every(500, []() {
@@ -263,36 +299,37 @@ void setup() {
     Serial.println("[CMD] drying deadline expired → Off");
   });
 
-  // 7. HA controls — продуктовые кнопки в HA UI. Публикуются автоматически
-  //    при HA-коннекте, нажатия маршрутизируются в наш callback.
+  // 7. HA controls — продуктовые сущности в HA UI. Привязаны к menu-полям
+  //    (heat_temp / heat_duration) через menu_apply_by_bind: значение
+  //    persist'ится в NVS, синхронизируется с инспектором портала.
+  //    Диапазоны (min/max) берутся из g_menu_meta — единый источник правды
+  //    с menu.yaml, при правке YAML и регенерации HA автоматически подхватит.
+  //    Кнопка Heat start читает текущие menu.heat_temp / menu.heat_duration
+  //    (тот же путь что invoke по id из DeviceMenuPanel).
   auto &ha = device().ha();
-  ha.button(
-      "heat_50", "Heat 50°C",
-      []() { applyHeating(0, 50.0f, 0, iDryer::UnitMode::Drying, "Start"); },
-      "mdi:thermometer");
-  ha.button(
-      "heat_55", "Heat 55°C",
-      []() { applyHeating(0, 55.0f, 0, iDryer::UnitMode::Drying, "Start"); },
-      "mdi:thermometer");
-  ha.button(
-      "heat_60", "Heat 60°C",
-      []() { applyHeating(0, 60.0f, 0, iDryer::UnitMode::Drying, "Start"); },
-      "mdi:thermometer-high");
+  ha.number(
+      "heat_temp", "Heat temperature",
+      (int)g_menu_meta[MENU_HEAT_TEMP].min_val,
+      (int)g_menu_meta[MENU_HEAT_TEMP].max_val,
+      [](int v) { menu_apply_by_bind("heat_temp", (float)v); },
+      "°C", "mdi:thermometer");
+  ha.number(
+      "heat_duration", "Heat duration",
+      (int)g_menu_meta[MENU_HEAT_DURATION].min_val,
+      (int)g_menu_meta[MENU_HEAT_DURATION].max_val,
+      [](int v) { menu_apply_by_bind("heat_duration", (float)v); },
+      "min", "mdi:timer-outline");
+  ha.button("heat_start", "Heat start", []() { heat_start(); },
+            "mdi:play-circle");
   ha.button("stop", "Stop", []() { applyStop(0); }, "mdi:stop-circle");
 
   // 8. Команды портала / Local-WS — обработчики через onCommand.
+  //    iHeater Link на menu_protocol_v1: запуск/остановка нагрева — только
+  //    через invoke (heat.start / heat.stop, форма B). Legacy
+  //    commands/drying / commands/storage / commands/stop здесь больше не
+  //    обрабатываются (backend для IHEATER_LINK шлёт invoke).
   auto &link = device();
 
-  link.onCommand("drying", [](JsonObjectConst data) {
-    applyHeating(pickUnit(data), pickTemp(data), pickDurationSec(data),
-                 iDryer::UnitMode::Drying, "Start");
-  });
-  link.onCommand("storage", [](JsonObjectConst data) {
-    applyHeating(pickUnit(data), pickTemp(data), 0, iDryer::UnitMode::Storage,
-                 "Storage");
-  });
-  link.onCommand("stop",
-                 [](JsonObjectConst data) { applyStop(pickUnit(data)); });
   link.onCommand(
       "find", [](JsonObjectConst) { /* iHeater Link не имеет индикатора */ });
   link.onCommand("clear_errors", [](JsonObjectConst) { /* нет UART-ошибок */ });

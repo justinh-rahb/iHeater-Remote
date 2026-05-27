@@ -223,59 +223,71 @@ const MenuItem g_menu[MENU__COUNT] = {
   },
   [34] = {
     MENU_HEATING, { "НАГРЕВ", "HEATING" }, { nullptr, nullptr },
-    MN_SUBMENU, 0, 35, 2,
+    MN_SUBMENU, 0, 35, 4,
     { { NULL }, { VT_F32, NULL, 0, 0, 0, NULL, false } },
     -1, 0
   },
   [35] = {
+    MENU_HEAT_TEMP, { "ТЕМПЕРАТУРА", "TEMPERATURE" }, { "°C", "°C" },
+    MN_VALUE, 34, -1, 0,
+    { { NULL }, { VT_F32, (void*)&menu.heat_temp, 45, 65, 1, nullptr, false } },
+    -1, 0
+  },
+  [36] = {
+    MENU_HEAT_DURATION, { "ВРЕМЯ", "TIME" }, { "мин", "min" },
+    MN_VALUE, 34, -1, 0,
+    { { NULL }, { VT_U16, (void*)&menu.heat_duration, 0, 1440, 1, nullptr, false } },
+    -1, 0
+  },
+  [37] = {
     MENU_HEAT_START, { "ВКЛЮЧИТЬ", "HEAT START" }, { nullptr, nullptr },
     MN_ACTION, 34, -1, 0,
     { { heat_start }, { VT_F32, NULL, 0, 0, 0, NULL, false } },
     -1, 0
   },
-  [36] = {
+  [38] = {
     MENU_HEAT_STOP, { "ВЫКЛЮЧИТЬ", "HEAT STOP" }, { nullptr, nullptr },
     MN_ACTION, 34, -1, 0,
     { { heat_stop }, { VT_F32, NULL, 0, 0, 0, NULL, false } },
     -1, 0
   },
-  [37] = {
+  [39] = {
     MENU_LOGS, { "ЛОГИ", "LOGS" }, { nullptr, nullptr },
-    MN_SUBMENU, 0, 38, 4,
+    MN_SUBMENU, 0, 40, 4,
     { { NULL }, { VT_F32, NULL, 0, 0, 0, NULL, false } },
     -1, 0
   },
-  [38] = {
+  [40] = {
     MENU_LOG_PORTAL_ENABLED, { "ПОРТАЛ", "PORTAL" }, { nullptr, nullptr },
-    MN_TOGGLE, 37, -1, 0,
+    MN_TOGGLE, 39, -1, 0,
     { { NULL }, { VT_BOOL, (void*)&menu.log_portal, 0, 0, 1, nullptr, false } },
     -1, 0
   },
-  [39] = {
+  [41] = {
     MENU_LOG_PRINTER_ENABLED, { "ПРИНТЕР", "PRINTER" }, { nullptr, nullptr },
-    MN_TOGGLE, 37, -1, 0,
+    MN_TOGGLE, 39, -1, 0,
     { { NULL }, { VT_BOOL, (void*)&menu.log_printer, 0, 0, 1, nullptr, false } },
     -1, 0
   },
-  [40] = {
+  [42] = {
     MENU_LOG_DEVICE_ENABLED, { "УСТРОЙСТВО", "DEVICE" }, { nullptr, nullptr },
-    MN_TOGGLE, 37, -1, 0,
+    MN_TOGGLE, 39, -1, 0,
     { { NULL }, { VT_BOOL, (void*)&menu.log_device, 0, 0, 1, nullptr, false } },
     -1, 0
   },
-  [41] = {
+  [43] = {
     MENU_LOG_DEBUG_ENABLED, { "DEBUG", "DEBUG" }, { nullptr, nullptr },
-    MN_TOGGLE, 37, -1, 0,
+    MN_TOGGLE, 39, -1, 0,
     { { NULL }, { VT_BOOL, (void*)&menu.log_debug, 0, 0, 1, nullptr, false } },
     -1, 0
   },
-  [42] = {
+  [44] = {
     MENU_UNITS_COUNT, { "КОЛ-ВО ЮНИТОВ", "UNITS" }, { nullptr, nullptr },
     MN_VALUE, 0, -1, 0,
     { { NULL }, { VT_U8, (void*)&menu.units_count, 1, 1, 1, nullptr, false } },
     -1, 0
   },
-  [43] = {
+  [45] = {
     MENU_LANGUAGE, { "ЯЗЫК", "LANGUAGE" }, { nullptr, nullptr },
     MN_VALUE, 0, -1, 0,
     { { NULL }, { VT_U8, (void*)&menu.language, 0, 1, 1, nullptr, false } },

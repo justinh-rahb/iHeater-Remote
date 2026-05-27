@@ -39,6 +39,8 @@ public:
   float mat_peek = 110.0f;
   float mat_ppsu = 120.0f;
   float mat_psu = 120.0f;
+  float heat_temp = 60.0f;
+  uint16_t heat_duration = (uint16_t)0;
   bool log_portal = false;
   bool log_printer = false;
   bool log_device = false;

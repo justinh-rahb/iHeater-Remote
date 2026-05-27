@@ -281,7 +281,7 @@ tray_now → tray_type != ""?  ──yes──▶  target = materialTempFromMenu
 
 **1. Корректный выбор активного трея через `tray_now`**
 
-Файл: `lib/idryer-protocol/src/cloud/bambu_client.cpp:431–454`
+Файл: `lib/idryer-core/src/integrations/bambu/bambu_client.cpp`
 
 Текущее поведение: берётся первый непустой трей из `ams[0]`.
 

@@ -403,6 +403,32 @@
       type: submenu
       title: { ru: "НАГРЕВ", en: "HEATING" }
       children:
+        - id: heat_temp
+          type: value
+          title: { ru: "ТЕМПЕРАТУРА", en: "TEMPERATURE" }
+          unit: { ru: "°C", en: "°C" }
+          vtype: float
+          min: 45
+          max: 65
+          step: 1
+          bind: heat_temp
+          persist: true
+          scope: global
+          default: 60.0
+
+        - id: heat_duration
+          type: value
+          title: { ru: "ВРЕМЯ", en: "TIME" }
+          unit: { ru: "мин", en: "min" }
+          vtype: uint16
+          min: 0
+          max: 1440
+          step: 1
+          bind: heat_duration
+          persist: true
+          scope: global
+          default: 0
+
         - id: heat_start
           type: action
           title: { ru: "ВКЛЮЧИТЬ", en: "HEAT START" }

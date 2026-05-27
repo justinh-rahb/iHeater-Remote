@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MENU_META_COUNT 44
+#define MENU_META_COUNT 46
 #define MENU_LANG_COUNT 2
 
 typedef enum {
@@ -223,51 +223,61 @@ static const MenuMeta g_menu_meta[MENU_META_COUNT] = {
       nullptr, nullptr },
     // [34] heating
     { 34, { "НАГРЕВ", "HEATING" }, { nullptr, nullptr },
-      META_SUBMENU, 0, 35, 2,
+      META_SUBMENU, 0, 35, 4,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       nullptr, nullptr },
-    // [35] heat_start
-    { 35, { "ВКЛЮЧИТЬ", "HEAT START" }, { nullptr, nullptr },
+    // [35] heat_temp
+    { 35, { "ТЕМПЕРАТУРА", "TEMPERATURE" }, { "°C", "°C" },
+      META_VALUE, 34, -1, 0,
+      META_VT_F32, 45.0f, 65.0f, 1.0f, META_SCOPE_GLOBAL,
+      nullptr, nullptr },
+    // [36] heat_duration
+    { 36, { "ВРЕМЯ", "TIME" }, { "мин", "min" },
+      META_VALUE, 34, -1, 0,
+      META_VT_U16, 0.0f, 1440.0f, 1.0f, META_SCOPE_GLOBAL,
+      nullptr, nullptr },
+    // [37] heat_start
+    { 37, { "ВКЛЮЧИТЬ", "HEAT START" }, { nullptr, nullptr },
       META_ACTION, 34, -1, 0,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       "iheater.heat_start", "HeaterControl" },
-    // [36] heat_stop
-    { 36, { "ВЫКЛЮЧИТЬ", "HEAT STOP" }, { nullptr, nullptr },
+    // [38] heat_stop
+    { 38, { "ВЫКЛЮЧИТЬ", "HEAT STOP" }, { nullptr, nullptr },
       META_ACTION, 34, -1, 0,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       "iheater.heat_stop", nullptr },
-    // [37] logs
-    { 37, { "ЛОГИ", "LOGS" }, { nullptr, nullptr },
-      META_SUBMENU, 0, 38, 4,
+    // [39] logs
+    { 39, { "ЛОГИ", "LOGS" }, { nullptr, nullptr },
+      META_SUBMENU, 0, 40, 4,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       nullptr, nullptr },
-    // [38] log_portal_enabled
-    { 38, { "ПОРТАЛ", "PORTAL" }, { nullptr, nullptr },
-      META_TOGGLE, 37, -1, 0,
+    // [40] log_portal_enabled
+    { 40, { "ПОРТАЛ", "PORTAL" }, { nullptr, nullptr },
+      META_TOGGLE, 39, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [39] log_printer_enabled
-    { 39, { "ПРИНТЕР", "PRINTER" }, { nullptr, nullptr },
-      META_TOGGLE, 37, -1, 0,
+    // [41] log_printer_enabled
+    { 41, { "ПРИНТЕР", "PRINTER" }, { nullptr, nullptr },
+      META_TOGGLE, 39, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [40] log_device_enabled
-    { 40, { "УСТРОЙСТВО", "DEVICE" }, { nullptr, nullptr },
-      META_TOGGLE, 37, -1, 0,
+    // [42] log_device_enabled
+    { 42, { "УСТРОЙСТВО", "DEVICE" }, { nullptr, nullptr },
+      META_TOGGLE, 39, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [41] log_debug_enabled
-    { 41, { "DEBUG", "DEBUG" }, { nullptr, nullptr },
-      META_TOGGLE, 37, -1, 0,
+    // [43] log_debug_enabled
+    { 43, { "DEBUG", "DEBUG" }, { nullptr, nullptr },
+      META_TOGGLE, 39, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [42] units_count
-    { 42, { "КОЛ-ВО ЮНИТОВ", "UNITS" }, { nullptr, nullptr },
+    // [44] units_count
+    { 44, { "КОЛ-ВО ЮНИТОВ", "UNITS" }, { nullptr, nullptr },
       META_VALUE, 0, -1, 0,
       META_VT_U8, 1.0f, 1.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [43] language
-    { 43, { "ЯЗЫК", "LANGUAGE" }, { nullptr, nullptr },
+    // [45] language
+    { 45, { "ЯЗЫК", "LANGUAGE" }, { nullptr, nullptr },
       META_VALUE, 0, -1, 0,
       META_VT_U8, 0.0f, 1.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },

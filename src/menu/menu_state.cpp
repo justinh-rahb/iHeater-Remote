@@ -38,6 +38,8 @@ void MenuState::initDefaults(){
   this->mat_peek = 110.0f;
   this->mat_ppsu = 120.0f;
   this->mat_psu = 120.0f;
+  this->heat_temp = 60.0f;
+  this->heat_duration = (uint16_t)0;
   this->log_portal = false;
   this->log_printer = false;
   this->log_device = false;
@@ -87,6 +89,8 @@ void MenuState::loadFromNVS(){
   ee_read("mat_peek", this->mat_peek);
   ee_read("mat_ppsu", this->mat_ppsu);
   ee_read("mat_psu", this->mat_psu);
+  ee_read("heat_temp", this->heat_temp);
+  ee_read("heat_duration", this->heat_duration);
   ee_read("log_portal", this->log_portal);
   ee_read("log_printer", this->log_printer);
   ee_read("log_device", this->log_device);
@@ -131,6 +135,8 @@ void MenuState::saveToNVS(){
   ee_store_field("mat_peek", this->mat_peek);
   ee_store_field("mat_ppsu", this->mat_ppsu);
   ee_store_field("mat_psu", this->mat_psu);
+  ee_store_field("heat_temp", this->heat_temp);
+  ee_store_field("heat_duration", this->heat_duration);
   ee_store_field("log_portal", this->log_portal);
   ee_store_field("log_printer", this->log_printer);
   ee_store_field("log_device", this->log_device);
