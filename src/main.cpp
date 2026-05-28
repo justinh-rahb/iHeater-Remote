@@ -71,8 +71,10 @@ static bool s_logPortal = false;
 // независимо от WiFi.
 static iheaterlink::RmtOutputAdapter s_output{iheaterlink::RmtOutputConfig{}};
 
-// Deadline авто-Off для команды Start (durationS из портала).
-// 0 = таймер не активен.
+// Дедлайн авто-Off (абсолютный millis). 0 = таймер не активен.
+// NB для аудита: время сессии намеренно считается двумя независимыми путями —
+// здесь millis (точный, для авто-Off) и status.elapsedS[] (тик 1 Гц, для UI).
+// Это НЕ дубль-баг: расхождение < 1 c на часах нагрева, чинить не нужно.
 static uint32_t s_dryingDeadlineMs = 0;
 
 // Указатель на MenuBridge — инициализируется в setup() после begin().
