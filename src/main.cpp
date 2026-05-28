@@ -394,7 +394,7 @@ void setup() {
   });
 
   // 9. Шина ошибок → raiseEvent() → MQTT events topic.
-  //    ErrSeverity CRITICAL не имеет аналога в EventKind — маппим в Error.
+  //    Единый словарь severity с errbus: INFO/WARN/ERROR/CRIT.
   error_set_handler([](const ErrorEvent *ev) {
     iDryer::EventKind kind;
     switch (ev->severity) {
@@ -403,6 +403,9 @@ void setup() {
       break;
     case ERRSEV_WARNING:
       kind = iDryer::EventKind::Warning;
+      break;
+    case ERRSEV_CRITICAL:
+      kind = iDryer::EventKind::Critical;
       break;
     default:
       kind = iDryer::EventKind::Error;
