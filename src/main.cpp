@@ -168,6 +168,21 @@ static void enrichTelemetry(JsonObject root) {
   root["active"] = idryer::cloud::activeIntegrationToString(activeAI);
   root["outputMode"] = heating ? 1 : 0;
   root["targetTempC"] = cmd.targetTempC;
+
+  // chamberTemp от активной интеграции — публикуем только при реальных данных.
+  // У Bambu/Moonraker клиентов поле инициализировано NAN и обновляется лишь
+  // когда принтер прислал значение (или has_sensor=1 у Klipper). Если NAN —
+  // поле в JSON не пишем (telemetry_null_policy: отсутствие = нет данных).
+  auto* mgr = device().integrationsManager();
+  if (mgr) {
+    float chamberT = NAN;
+    if (activeAI == AI::Bambu) {
+      chamberT = mgr->bambuPrinterStatus().chamberTemp;
+    } else if (activeAI == AI::Moonraker) {
+      chamberT = mgr->moonrakerStatus().chamberTemperature;
+    }
+    if (!isnan(chamberT)) root["chamberTemp"] = chamberT;
+  }
 }
 
 // Синхронизирует флаги логирования из меню → клиентов интеграций.
