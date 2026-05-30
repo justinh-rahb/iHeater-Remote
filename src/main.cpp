@@ -36,11 +36,11 @@ static const iDryer::Config CFG = {
 
     // ── Периферия ────────────────────────────────────────────────────────────
     // iHeater Link не имеет своих сенсоров — камеру меряет принтер.
-    // hasHeaterPower=true: в telemetry шлём 0/1 по текущей команде RMT.
-    .hasHeaterPower = true,  // управляемый нагреватель (мощность 0..1)
-    .hasFanStatus = false,   // вентилятор
+    // hasHeater=true: в telemetry шлём 0/1 по текущей команде RMT.
+    .hasHeater = true,       // управляемый нагреватель (мощность 0..1)
+    .hasFan = false,         // вентилятор
     .hasLed = false,         // адресная LED-лента
-    .hasScales = false,      // весовой датчик
+    .hasWeight = false,      // весовой датчик
     .hasRfid = false,        // RFID-метка катушки
     .hasAirTemp = false,     // датчик температуры воздуха
     .hasAirHumidity = false, // датчик влажности воздуха
