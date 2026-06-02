@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MENU_META_COUNT 46
+#define MENU_META_COUNT 47
 #define MENU_LANG_COUNT 2
 
 typedef enum {
@@ -53,7 +53,7 @@ typedef struct {
 static const MenuMeta g_menu_meta[MENU_META_COUNT] = {
     // [0] root
     { 0, { "IHEATER LINK", "IHEATER LINK" }, { nullptr, nullptr },
-      META_SUBMENU, -1, 1, 7,
+      META_SUBMENU, -1, 1, 8,
       META_VT_F32, 0.0f, 0.0f, 0.0f, META_SCOPE_PER_UNIT,
       nullptr, nullptr },
     // [1] portal
@@ -271,13 +271,18 @@ static const MenuMeta g_menu_meta[MENU_META_COUNT] = {
       META_TOGGLE, 39, -1, 0,
       META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [44] units_count
-    { 44, { "КОЛ-ВО ЮНИТОВ", "UNITS" }, { nullptr, nullptr },
+    // [44] ignore_external_cmd
+    { 44, { "ИГНОР. ВНЕШ. КОМАНД", "IGNOR EXT CMD" }, { nullptr, nullptr },
+      META_TOGGLE, 0, -1, 0,
+      META_VT_BOOL, 0.0f, 0.0f, 1.0f, META_SCOPE_GLOBAL,
+      "system.ignore_external_cmd", nullptr },
+    // [45] units_count
+    { 45, { "КОЛ-ВО ЮНИТОВ", "UNITS" }, { nullptr, nullptr },
       META_VALUE, 0, -1, 0,
       META_VT_U8, 1.0f, 1.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },
-    // [45] language
-    { 45, { "ЯЗЫК", "LANGUAGE" }, { nullptr, nullptr },
+    // [46] language
+    { 46, { "ЯЗЫК", "LANGUAGE" }, { nullptr, nullptr },
       META_VALUE, 0, -1, 0,
       META_VT_U8, 0.0f, 1.0f, 1.0f, META_SCOPE_GLOBAL,
       nullptr, nullptr },

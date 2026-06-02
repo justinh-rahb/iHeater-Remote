@@ -45,6 +45,7 @@ public:
   bool log_printer = false;
   bool log_device = false;
   bool log_debug = false;
+  bool ign_ext_cmd = false;
   uint8_t units_count = (uint8_t)1;
   uint8_t language = (uint8_t)1;
 

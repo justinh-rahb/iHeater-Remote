@@ -50,6 +50,7 @@ const MenuBinding g_bindings[] = {
   {MENU_LOG_PRINTER_ENABLED, "log_printer", VT_BOOL, (void*)&menu.log_printer, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_LOG_DEVICE_ENABLED, "log_device", VT_BOOL, (void*)&menu.log_device, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_LOG_DEBUG_ENABLED, "log_debug", VT_BOOL, (void*)&menu.log_debug, true, nullptr, false, SCOPE_GLOBAL},
+  {MENU_IGNORE_EXTERNAL_CMD, "ign_ext_cmd", VT_BOOL, (void*)&menu.ign_ext_cmd, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_UNITS_COUNT, "units_count", VT_U8, (void*)&menu.units_count, true, nullptr, false, SCOPE_GLOBAL},
   {MENU_LANGUAGE, "language", VT_U8, (void*)&menu.language, true, nullptr, false, SCOPE_GLOBAL},
 };

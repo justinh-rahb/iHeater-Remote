@@ -44,6 +44,7 @@ void MenuState::initDefaults(){
   this->log_printer = false;
   this->log_device = false;
   this->log_debug = false;
+  this->ign_ext_cmd = false;
   this->units_count = (uint8_t)1;
   this->language = (uint8_t)1;
 }
@@ -95,6 +96,7 @@ void MenuState::loadFromNVS(){
   ee_read("log_printer", this->log_printer);
   ee_read("log_device", this->log_device);
   ee_read("log_debug", this->log_debug);
+  ee_read("ign_ext_cmd", this->ign_ext_cmd);
   ee_read("units_count", this->units_count);
   ee_read("language", this->language);
   menu_nvs_end();
@@ -141,6 +143,7 @@ void MenuState::saveToNVS(){
   ee_store_field("log_printer", this->log_printer);
   ee_store_field("log_device", this->log_device);
   ee_store_field("log_debug", this->log_debug);
+  ee_store_field("ign_ext_cmd", this->ign_ext_cmd);
   ee_store_field("units_count", this->units_count);
   ee_store_field("language", this->language);
   menu_nvs_end();
