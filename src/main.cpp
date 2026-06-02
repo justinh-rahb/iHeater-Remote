@@ -244,6 +244,11 @@ void setup() {
         }
         mgr->setActive(target);
       });
+
+  // Связь меню «Игнор. внеш. команды» → SDK gate. Колбэк назначается ДО begin(),
+  // чтобы стартовое значение из NVS было применено сразу.
+  s_menuBridgeInst.setIgnoreExternalCmdCallback(
+      [](bool enabled) { device().setIgnoreExternalCmd(enabled); });
   s_menuBridgeInst.begin(); // загружает NVS, эмитит активную интеграцию
   applyLogFlags(); // синхронизирует log_portal/log_printer/log_device из NVS
 

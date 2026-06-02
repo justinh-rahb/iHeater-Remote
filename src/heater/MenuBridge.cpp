@@ -110,6 +110,10 @@ void MenuBridge::begin() {
   lastActive_ = ActiveConnection::None; // заставим emit-if-changed сработать
   emitActiveIfChanged();
 
+  // 8. Стартовый emit для ignore_external_cmd — продукт получит callback и
+  //    вызовет link.setIgnoreExternalCmd(v) с актуальным значением из NVS.
+  emitIgnoreExtCmdIfChanged();
+
   HAL_LOG_INFO("MENU", "Initialized (NVS namespace=%s, %u bindings)",
                NVS_MENU_NAMESPACE, (unsigned)g_bindings_count);
 }
@@ -132,6 +136,19 @@ void MenuBridge::emitActiveIfChanged() {
   lastActive_ = cur;
   if (activeCb_)
     activeCb_(cur);
+}
+
+void MenuBridge::emitIgnoreExtCmdIfChanged() {
+  bool cur = false;
+  if (!menu_read_by_bind("ign_ext_cmd", &cur)) {
+    return;
+  }
+  if (ignoreExtCmdInitialized_ && cur == lastIgnoreExtCmd_)
+    return;
+  lastIgnoreExtCmd_ = cur;
+  ignoreExtCmdInitialized_ = true;
+  if (ignoreExtCmdCb_)
+    ignoreExtCmdCb_(cur);
 }
 
 bool MenuBridge::publishFullConfig() {
@@ -215,6 +232,12 @@ bool MenuBridge::applySetCommand(JsonObjectConst data) {
 
   // После эксклюзивности сообщаем наверх о новом активном ПОДКЛЮЧЕНИИ.
   emitActiveIfChanged();
+
+  // Если поменяли toggle игнора внешних команд — сообщаем продукту, чтобы
+  // он вызвал link.setIgnoreExternalCmd(v) (SDK включит/выключит guard).
+  if (strcmp(b->bind, "ign_ext_cmd") == 0) {
+    emitIgnoreExtCmdIfChanged();
+  }
 
   publishFullConfig();
 

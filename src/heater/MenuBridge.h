@@ -29,6 +29,11 @@ enum class ActiveConnection : uint8_t { None = 0, Bambu, Moonraker, Ha };
 /// изменении toggle-ов или при старте (синхронизация с сохранённым NVS).
 using ActiveConnectionCallback = std::function<void(ActiveConnection)>;
 
+/// Колбэк на изменение toggle "Игнор. внеш. команд". Вызывается из begin()
+/// со стартовым значением (из NVS) и далее при каждом applySetCommand,
+/// которое поменяло этот bind.
+using IgnoreExternalCmdCallback = std::function<void(bool)>;
+
 class MenuBridge {
 public:
     explicit MenuBridge(idryer::MqttClient* mqtt) : mqtt_(mqtt) {}
@@ -37,6 +42,11 @@ public:
     /// Будет вызван один раз из begin() со стартовым значением и далее
     /// при каждом applySetCommand, которое поменяло bambu_en/moon_en/ha_en.
     void setActiveConnectionCallback(ActiveConnectionCallback cb) { activeCb_ = std::move(cb); }
+
+    /// Зарегистрировать колбэк на изменение toggle "Игнор. внеш. команд".
+    /// Будет вызван один раз из begin() со стартовым значением (из NVS) и
+    /// далее при каждом applySetCommand, которое поменяло этот bind.
+    void setIgnoreExternalCmdCallback(IgnoreExternalCmdCallback cb) { ignoreExtCmdCb_ = std::move(cb); }
 
     /// Открыть NVS, подтянуть дефолты, загрузить сохранённые значения,
     /// синхронизировать MenuState → g_menu_cache.
@@ -70,10 +80,16 @@ private:
     /// Вызвать activeCb_ если значение изменилось с прошлого вызова.
     void emitActiveIfChanged();
 
+    /// Вызвать ignoreExtCmdCb_ если значение изменилось с прошлого вызова.
+    void emitIgnoreExtCmdIfChanged();
+
     idryer::MqttClient* mqtt_ = nullptr;
     bool nvsReady_ = false;
     ActiveConnectionCallback activeCb_;
     ActiveConnection lastActive_ = ActiveConnection::None;
+    IgnoreExternalCmdCallback ignoreExtCmdCb_;
+    bool lastIgnoreExtCmd_ = false;
+    bool ignoreExtCmdInitialized_ = false;
 };
 
 } // namespace iheaterlink
