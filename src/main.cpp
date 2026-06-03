@@ -129,7 +129,7 @@ static void applyStop(uint8_t u) {
 // heat_duration в минутах; 0 = греть бесконечно (без таймера auto-off).
 extern "C" void heat_start(void) {
   applyHeating(0, menu.heat_temp, (uint32_t)menu.heat_duration * 60u,
-               iDryer::UnitMode::Drying, "menu:heat_start");
+               iDryer::UnitMode::Heating, "menu:heat_start");
 }
 
 extern "C" void heat_stop(void) { applyStop(0); }
@@ -145,7 +145,7 @@ static void enrichStatus(JsonObject root) {
   auto *mgr = device().integrationsManager();
   if (!mgr || mgr->getActive() != AI::Bambu)
     return;
-  if (device().status.mode[0] != iDryer::UnitMode::Drying)
+  if (device().status.mode[0] != iDryer::UnitMode::Heating)
     return;
   JsonArray units = root["units"];
   if (units.isNull() || units.size() == 0)
@@ -257,14 +257,14 @@ void setup() {
   iheaterlink::wireAutoHeat(&s_output);
   iheaterlink::wireBambuSession([](float targetTempC, bool heating) {
     if (heating) {
-      applyHeating(0, targetTempC, 0, iDryer::UnitMode::Drying, "Bambu");
+      applyHeating(0, targetTempC, 0, iDryer::UnitMode::Heating, "Bambu");
     } else {
       applyStop(0);
     }
   });
   iheaterlink::wireMoonrakerSession([](float targetTempC, bool heating) {
     if (heating) {
-      applyHeating(0, targetTempC, 0, iDryer::UnitMode::Drying, "Klipper");
+      applyHeating(0, targetTempC, 0, iDryer::UnitMode::Heating, "Klipper");
     } else {
       applyStop(0);
     }
@@ -282,7 +282,7 @@ void setup() {
   //    Тик elapsedS раз в секунду, пока режим активен.
   device().every(1000, []() {
     const auto m = device().status.mode[0];
-    if (m == iDryer::UnitMode::Drying || m == iDryer::UnitMode::Storage)
+    if (m == iDryer::UnitMode::Heating || m == iDryer::UnitMode::Storage)
       device().status.elapsedS[0]++;
   });
   //    Триггер publishStatusNow при ∆Bambu progress ≥ 1% — иначе status
@@ -293,7 +293,7 @@ void setup() {
     auto *mgr = device().integrationsManager();
     if (!mgr || mgr->getActive() != AI::Bambu)
       return;
-    if (device().status.mode[0] != iDryer::UnitMode::Drying)
+    if (device().status.mode[0] != iDryer::UnitMode::Heating)
       return;
     const uint8_t cur = mgr->bambuPrinterStatus().progressPercent;
     const uint8_t last = s_lastPublishedBambuProgress;
@@ -379,7 +379,7 @@ void setup() {
     if (strcmp(action, "heat.start") == 0) {
       float tempC = args["tempC"] | 0.0f;
       uint32_t durMin = args["durationMin"] | 0u;
-      applyHeating(0, tempC, durMin * 60u, iDryer::UnitMode::Drying,
+      applyHeating(0, tempC, durMin * 60u, iDryer::UnitMode::Heating,
                    "invoke:heat.start");
     } else if (strcmp(action, "heat.stop") == 0) {
       applyStop(0);
