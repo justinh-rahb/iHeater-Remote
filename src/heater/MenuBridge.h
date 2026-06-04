@@ -16,6 +16,8 @@
 #include <ArduinoJson.h>
 #include <functional>
 
+#include <menu_publisher.h>  // idryer::MenuPublisher для pre-allocated публикации меню
+
 // Forward declaration — чтобы не тянуть весь mqtt_client.h в публичный заголовок.
 namespace idryer { class MqttClient; }
 
@@ -90,6 +92,10 @@ private:
     IgnoreExternalCmdCallback ignoreExtCmdCb_;
     bool lastIgnoreExtCmd_ = false;
     bool ignoreExtCmdInitialized_ = false;
+    /// Pre-allocated публикатор полного config — один malloc на старте,
+    /// переиспользуется на каждый publishFullConfig. Заменяет старую логику
+    /// со static char buf[MENU_FULL_JSON_BUF_SIZE] в .bss.
+    idryer::MenuPublisher menuPub_;
 };
 
 } // namespace iheaterlink

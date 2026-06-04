@@ -102,6 +102,16 @@ void MenuBridge::begin() {
   //    sync'ит на каждый set, так что после bootstrap кэш всегда актуален.
   menu_sync_state_to_cache();
 
+  // 6a. Pre-allocate MenuPublisher (один malloc на heap MENU_SERIALIZED_MAX_SIZE
+  //     + DynamicJsonDocument). Без этого publishFullConfig() сразу упадёт.
+  //     Если init не удался — логируем и продолжаем; publishFullConfig вернёт
+  //     false до тех пор пока memory не освободится.
+  if (!menuPub_.begin()) {
+    HAL_LOG_ERROR("MENU",
+                  "MenuPublisher init failed (heap exhausted?) — "
+                  "publishFullConfig will fail");
+  }
+
   nvsReady_ = true;
 
   // 7. Сразу эмитим текущий active чтобы LinkIntegrationsManager применил
@@ -157,18 +167,16 @@ bool MenuBridge::publishFullConfig() {
   if (!nvsReady_)
     begin();
 
-  // menu_buildFullJson собирает {v, menu:[...]} из g_menu_meta + g_menu_cache.
-  static char buf[MENU_FULL_JSON_BUF_SIZE];
-  size_t len = menu_buildFullJson(buf, sizeof(buf));
+  // MenuPublisher переиспользует pre-allocated heap-буфер и DynamicJsonDocument
+  // (выделены один раз в begin()). Никаких malloc/free в горячем пути, нет
+  // static char[] в .bss.
+  size_t len = menuPub_.publishFull(mqtt_);
   if (len == 0) {
-    HAL_LOG_ERROR("MENU", "menu_buildFullJson failed");
+    HAL_LOG_ERROR("MENU", "menuPub_.publishFull returned 0 (overflow/init?)");
     return false;
   }
-
-  uint16_t sent = mqtt_->publishConfigRaw(buf, len);
-  HAL_LOG_INFO("MENU", "Published config: %u bytes, %u MQTT messages",
-               (unsigned)len, (unsigned)sent);
-  return sent > 0;
+  HAL_LOG_INFO("MENU", "Published config: %u bytes", (unsigned)len);
+  return true;
 }
 
 bool MenuBridge::applySetCommand(JsonObjectConst data) {
