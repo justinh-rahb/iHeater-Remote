@@ -16,6 +16,7 @@
 #include "heater/auto_heat.h"
 
 #include "version.h"       // VERSION_STR для Config.firmwareVersion
+#include <ota_receiver.h>  // idryer::OtaReceiver для Phase 6 OTA
 #include <hal/hal_types.h> // g_hal->logger->setLevel()
 #include <menu_bindings.h> // menu_apply_by_bind
 #include <menu_meta.h>     // g_menu_meta[].min_val / max_val для HA-number
@@ -215,6 +216,14 @@ void setup() {
   });
   menu_nvs_begin(); // NVS namespace до device.begin (известный init contract)
   device().begin();
+
+  // Phase 6 OTA: регистрируем приёмник прошивки СРАЗУ после link.begin().
+  // Подписка на firmware_update_* через onCommand + setOtaChunkCallback.
+  // markCurrentBootValid отменяет bootloader rollback — если эта прошивка
+  // только что прилетела через OTA и впервые загрузилась, помечаем её как
+  // валидную (иначе bootloader откатит при следующем ребуте).
+  idryer::OtaReceiver::instance().begin(&device(), "iheater_link");
+  idryer::OtaReceiver::markCurrentBootValid();
 
   // RMT и всё остальное — после.
   s_output.begin();
