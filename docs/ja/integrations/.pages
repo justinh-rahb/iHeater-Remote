@@ -1,0 +1,5 @@
+title: 連携
+nav:
+  - Klipper設定: klipper-setup.md
+  - Bambu Lab設定: bambu-lab-setup.md
+  - Home Assistant: home-assistant.md

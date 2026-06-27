@@ -1,0 +1,5 @@
+title: 整合
+nav:
+  - Klipper 設定: klipper-setup.md
+  - Bambu Lab 設定: bambu-lab-setup.md
+  - Home Assistant: home-assistant.md

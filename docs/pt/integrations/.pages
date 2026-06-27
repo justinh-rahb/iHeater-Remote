@@ -1,0 +1,5 @@
+title: Integrações
+nav:
+  - Configuração do Klipper: klipper-setup.md
+  - Configuração do Bambu Lab: bambu-lab-setup.md
+  - Home Assistant: home-assistant.md
