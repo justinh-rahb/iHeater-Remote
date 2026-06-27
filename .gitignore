@@ -30,3 +30,7 @@ commit-message-map.json
 commit-message-raw-response.json
 prepare-commit-messages.mjs
 apply-commit-messages.mjs
+
+img/.resize-hash
+package-lock.json
+package.json
