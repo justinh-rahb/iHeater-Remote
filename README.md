@@ -80,6 +80,48 @@ The web flasher is hosted at [install.idryer.org](https://install.idryer.org/).
 5. Click **Install**. The flasher writes the firmware.
 6. When flashing completes, the Wi-Fi setup wizard opens.
 
+## Local standalone respin
+
+The ESP32-C3 Super Mini can also be built as local-only firmware:
+
+```bash
+pio run -e esp32c3-super-mini-standalone
+```
+
+This build does not start the iDryer cloud, portal, MQTT, OTA, Bambu,
+Moonraker, or Home Assistant runtime. It only starts the RMT output,
+the BOOT button handler, the blue status LED, Wi-Fi, and a small local
+web interface.
+
+Network behavior:
+
+- If `include/secrets.h` defines `WIFI_SSID` and `WIFI_PASSWORD`, the
+  device joins that 2.4 GHz LAN and prints its local URL on serial.
+- If credentials are not present or connection times out, it creates an
+  open access point named `iHeater-Standalone-XXXX` and serves the UI at
+  `http://192.168.4.1/`.
+
+Standalone mode table:
+
+| Mode          | Target |
+| ------------- | ------ |
+| `MODE_TEMP_0` | Off    |
+| `MODE_TEMP_1` | 55 C   |
+| `MODE_TEMP_2` | 60 C   |
+| `MODE_TEMP_3` | 65 C   |
+| `MODE_TEMP_4` | 70 C   |
+| `MODE_TEMP_5` | 75 C   |
+| `MODE_TEMP_6` | 80 C   |
+| `MODE_TEMP_7` | 85 C   |
+
+BOOT button behavior:
+
+- 1 to 7 quick presses selects `MODE_TEMP_1` through `MODE_TEMP_7`.
+  For example, two quick presses selects `MODE_TEMP_2` / 60 C.
+- Holding BOOT for 2 seconds selects `MODE_TEMP_0` / Off.
+- The ESP32-C3 Super Mini blue LED flashes the current mode number in
+  quick bursts, then pauses. Off leaves the LED off.
+
 ## Wi-Fi setup
 
 After flashing, the Improv wizard opens automatically over the serial
