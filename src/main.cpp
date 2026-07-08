@@ -1,4 +1,4 @@
-#ifdef IHEATER_STANDALONE_LOCAL
+#if defined(IHEATER_STANDALONE_LOCAL) || defined(IHEATER_REMOTE_LOCAL)
 
 #include "standalone/StandaloneApp.h"
 

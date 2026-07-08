@@ -1,178 +1,161 @@
-# iHeater Link — quick guide
+# iHeater-Remote
 
-iHeater Link is a connectivity module for the **iHeater** controller with firmware [iheater_revХ_Х_pulse](https://github.com/pavluchenkor/iHeater-Standalone-Firmware/releases). It is an ESP32-C3 / ESP32-S3 board that:
+iHeater-Remote is a local-only ESP32-C3 companion firmware for the
+iHeater controller. It drives the iHeater pulse input over one GPIO,
+exposes a small local web UI, and recreates the standalone iHeater mode
+button behavior on an ESP32-C3 Super Mini.
 
-- Connects to Wi-Fi and links iHeater to [portal.idryer.org](https://portal.idryer.org/).
-- Receives chamber target temperature from the printer through
-  **Moonraker (Klipper)**, **Bambu Lab (LAN)**, or **Home Assistant**
-  integrations.
-- Converts the target into a pulse signal and forwards it to the iHeater
-  controller over a single GPIO.
+This is a downstream fork of iHeater Link. It intentionally removes the
+cloud/portal workflow from the active firmware build while keeping the
+upstream source layout close enough to make future syncs practical.
 
-iHeater is controlled "over the wire": one signal pin on the ESP feeds
-the iHeater signal input. Wi-Fi and integrations are Link's job; heating
-and safety are iHeater's job.
+## Credits
 
-The single-wire link does not constrain where Link is placed. The ESP
-board can be installed outside the heat chamber. This avoids:
+This project is based on:
 
-- chip and peripheral overheating when the chamber runs at 60+ °C;
-- thermal lock-ups of the radio section and Wi-Fi session drops during
-  long heating cycles;
-- accelerated component degradation.
+- [pavluchenkor/iHeater-Link](https://github.com/pavluchenkor/iHeater-Link)
 
-Only the iHeater controller — designed for high-temperature operation —
-stays inside the chamber. Signal-wire length to the ESP is limited only
-by reasonable line load (tens of centimetres — no concerns).
+The iHeater controller firmware and safety behavior remain the
+controller's responsibility. iHeater-Remote only sends the setpoint pulse
+train.
 
-## Supported boards
+## What It Does
 
-| Board                    |       |
-| ------------------------ | ----- |
-| ESP32-C3 Super Mini      | `✅`  |
-| ESP32-C3 DevKitM-1       | `✅`  |
-| Seeed XIAO ESP32-S3      | `✅`  |
-| Waveshare ESP32-S3-Zero  | `✅`  |
+- Runs without iDryer cloud, portal MQTT, OTA, Bambu, Moonraker, or Home
+  Assistant integrations.
+- Serves a local web UI for selecting the heater mode.
+- Creates a captive-portal access point if it cannot join configured
+  Wi-Fi.
+- Reuses the ESP32-C3 Super Mini BOOT button for standalone-style mode
+  selection.
+- Uses the ESP32-C3 Super Mini blue LED to indicate the selected mode by
+  flashing the mode number in quick bursts.
+- Keeps the upstream iHeater Link code present behind its original build
+  environments so upstream changes can still be pulled and reviewed.
 
-Any other ESP32-C3 or ESP32-S3 board can be used as long as a free GPIO
-is available for the signal output. Check the manufacturer's pinout.
+## Hardware
 
-## Wiring
+Tested target:
 
-!!! warning "Never connect or disconnect wires while power is applied."
+| Board | Status |
+| --- | --- |
+| ESP32-C3 Super Mini | Supported |
 
-Power goes to the ESP through USB-C. The ESP, in turn, powers the
-iHeater controller over the 5 V line. This is the simplest setup. If
-needed, iHeater power can be sourced separately — Link does not depend
-on the power scheme.
+The firmware assumes:
 
-![ESP32-C3 Super Mini to iHeater wiring](../../img/iHeaterLink.png)
+| ESP32-C3 Super Mini | iHeater | Purpose |
+| --- | --- | --- |
+| `5V` | `5V` | controller power |
+| `GND` | `GND` | common ground |
+| `GPIO3` | signal input | pulse setpoint |
 
-Connections (same for all supported boards):
+The default BOOT button input is `GPIO9`, and the blue status LED is
+`GPIO8` active-low.
 
-| ESP        | iHeater          | Purpose             |
-| ---------- | ---------------- | ------------------- |
-| `5V`       | `5V`             | controller power    |
-| `GND`      | `GND`            | common ground       |
-| `GPIO3`    | signal input     | pulse setpoint      |
+## Build
 
-### Board pinouts
-
-ESP32-C3 Super Mini:
-
-![ESP32-C3 Super Mini pinout](../../img/ESP32-C3-Super-Mini-pinout-low.jpg)
-
-Waveshare ESP32-S3-Zero:
-
-![Waveshare ESP32-S3-Zero pinout](../../img/ESP32-C3-ZERO-Waveshare-pinout-low.jpg)
-
-## Flashing via the web flasher
-
-The web flasher is hosted at [install.idryer.org](https://install.idryer.org/).
-
-1. Connect Link to a USB port on the computer.
-2. Open [install.idryer.org](https://install.idryer.org/) and select
-   the **iHeater Link** device.
-3. Select the board variant.
-4. Click **Connect** and pick the serial port (typically `USB JTAG/serial`
-   or `CH340`). If the device is not detected, hold `BOOT` on the board
-   and briefly press `RST`.
-5. Click **Install**. The flasher writes the firmware.
-6. When flashing completes, the Wi-Fi setup wizard opens.
-
-## Local standalone respin
-
-The ESP32-C3 Super Mini can also be built as local-only firmware:
+The downstream build target is:
 
 ```bash
-pio run -e esp32c3-super-mini-standalone
+pio run -e esp32c3-super-mini-remote
 ```
 
-This build does not start the iDryer cloud, portal, MQTT, OTA, Bambu,
-Moonraker, or Home Assistant runtime. It only starts the RMT output,
-the BOOT button handler, the blue status LED, Wi-Fi, and a small local
-web interface.
+To flash a connected ESP32-C3 Super Mini:
 
-Network behavior:
+```bash
+pio run -e esp32c3-super-mini-remote -t upload --upload-port /dev/tty.usbmodem101
+```
 
-- If `include/secrets.h` defines `WIFI_SSID` and `WIFI_PASSWORD`, the
-  device joins that 2.4 GHz LAN and prints its local URL on serial.
-- If credentials are not present or connection times out, it creates an
-  open access point named `iHeater-Standalone-XXXX` and serves the UI at
-  `http://192.168.4.1/`.
+Replace the upload port with the port for your board.
 
-Standalone mode table:
+## Wi-Fi
 
-| Mode          | Target |
-| ------------- | ------ |
-| `MODE_TEMP_0` | Off    |
-| `MODE_TEMP_1` | 55 C   |
-| `MODE_TEMP_2` | 60 C   |
-| `MODE_TEMP_3` | 65 C   |
-| `MODE_TEMP_4` | 70 C   |
-| `MODE_TEMP_5` | 75 C   |
-| `MODE_TEMP_6` | 80 C   |
-| `MODE_TEMP_7` | 85 C   |
+For LAN mode, create `include/secrets.h`:
 
-BOOT button behavior:
+```cpp
+#pragma once
+
+#define WIFI_SSID "Your 2.4 GHz SSID"
+#define WIFI_PASSWORD "Your password"
+```
+
+`include/secrets.h` is intentionally ignored by git.
+
+If the configured Wi-Fi is unavailable, iHeater-Remote starts an open
+access point:
+
+```text
+iHeater-Remote-XXXX
+```
+
+The web UI is served at:
+
+```text
+http://192.168.4.1/
+```
+
+Captive portal DNS is enabled in AP mode, so most phones and laptops
+should offer to open the UI automatically.
+
+## Controls
+
+The mode table follows the standalone iHeater firmware behavior:
+
+| Mode | Target |
+| --- | --- |
+| `MODE_TEMP_0` | Off |
+| `MODE_TEMP_1` | 55 C |
+| `MODE_TEMP_2` | 60 C |
+| `MODE_TEMP_3` | 65 C |
+| `MODE_TEMP_4` | 70 C |
+| `MODE_TEMP_5` | 75 C |
+| `MODE_TEMP_6` | 80 C |
+| `MODE_TEMP_7` | 85 C |
+
+BOOT button:
 
 - 1 to 7 quick presses selects `MODE_TEMP_1` through `MODE_TEMP_7`.
-  For example, two quick presses selects `MODE_TEMP_2` / 60 C.
-- Holding BOOT for 2 seconds selects `MODE_TEMP_0` / Off.
-- The ESP32-C3 Super Mini blue LED flashes the current mode number in
-  quick bursts, then pauses. Off leaves the LED off.
+- Two quick presses selects `MODE_TEMP_2` / 60 C.
+- Holding BOOT for about 2 seconds selects `MODE_TEMP_0` / Off.
 
-## Wi-Fi setup
+Web UI:
 
-After flashing, the Improv wizard opens automatically over the serial
-port.
+- Open the device IP, or `http://192.168.4.1/` in AP mode.
+- Tap a mode button or Off.
+- The UI polls status and shows mode, target, network mode, and pulse
+  code.
 
-1. Enter the SSID and password of your 2.4 GHz network.
-2. Wait for the **Connected** status. The Link status LED switches to a
-   slow blue "breathing" pattern.
+LED:
 
-If the wizard does not open, unplug USB and reconnect via **Connect**
-without re-flashing.
+- Off mode leaves the blue LED off.
+- Active modes flash the mode number, pause, then repeat.
 
-!!! note "ESP32 supports 2.4 GHz only. 5 GHz networks will not work."
+## Keeping Sync With Upstream
 
-## Pairing with the portal
+This fork keeps the upstream project shape mostly intact:
 
-1. On the flasher page click **Connect and Claim**.
-2. The device receives the `START_CLAIM` command. After a few seconds
-   a PIN is shown on the page. The PIN is valid for ~5 minutes.
-3. Open [portal.idryer.org](https://portal.idryer.org/) → **Add device**
-   → enter the PIN.
-4. Once paired, the device appears online in the list.
+- Original integration firmware remains in `src/main.cpp` behind the
+  normal upstream build environments.
+- iHeater-Remote is selected by the `IHEATER_REMOTE_LOCAL` build flag.
+- The local-only implementation lives under `src/standalone/`.
+- The downstream PlatformIO environment is isolated as
+  `esp32c3-super-mini-remote`.
 
-If the response is `CLAIM_ALREADY:DEVICE_…`, the device is already
-paired to this or another account. Remove the device from the portal,
-then repeat the pairing.
+Suggested sync workflow:
 
-## Connecting to iHeater
+```bash
+git remote add upstream https://github.com/pavluchenkor/iHeater-Link.git
+git fetch upstream
+git merge upstream/main
+```
 
-1. Power the controller off.
-2. Wire ESP to iHeater per the diagram above: `5V`, `GND`, `GPIO3` →
-   iHeater signal input.
-3. Apply power to the ESP via USB. The controller is powered through
-   the 5 V line.
+Expect most downstream conflicts to be limited to `README.md`,
+`platformio.ini`, `src/main.cpp`, and `src/standalone/`.
 
-On boot, Link connects to the portal, activates the selected
-integration, and starts forwarding the chamber target to iHeater.
+## Notes
 
-## What you should see
-
-- LED 1 stays on, LED 3 blinks once per second — Link-to-iHeater
-  communication is established.
-- When the link is lost, all LEDs blink at 1 Hz.
-- All other errors are unrelated to Link and follow the standalone
-  firmware indication.
-
-## Diagnostics
-
-The device menu has a **DIAGNOSTICS → DIAG LOG** entry. When enabled,
-the serial port outputs a detailed report once per second: Wi-Fi
-status, MQTT status, active integration, current target, connector
-errors.
-
-Full diagnostics reference is available in the idryer-core library documentation in the project repository on GitHub.
+- Do not use `erase_flash` if you want to preserve NVS data from another
+  firmware build.
+- ESP32 Wi-Fi is 2.4 GHz only.
+- The iHeater controller should remain responsible for heater safety and
+  fault handling.

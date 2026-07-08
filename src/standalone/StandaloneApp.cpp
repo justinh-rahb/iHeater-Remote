@@ -110,7 +110,7 @@ void applyMode(uint8_t mode, const char *source) {
   s_output.forceFrame();
   resetLedPattern();
 
-  Serial.printf("[STANDALONE] %s mode=%u target=%.1fC pulse=%u\n", source,
+  Serial.printf("[REMOTE] %s mode=%u target=%.1fC pulse=%u\n", source,
                 mode, (double)cmd.targetTempC, s_output.getLastPulseCode());
 }
 
@@ -185,7 +185,7 @@ void handleRoot() {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>iHeater Standalone</title>
+<title>iHeater-Remote</title>
 <style>
 :root{color-scheme:dark light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#101314;color:#eef3f1}
 body{margin:0;min-height:100vh;background:#101314}
@@ -207,7 +207,7 @@ button.stop{grid-column:span 4;background:#4b2424;border-color:#724141}
 </head>
 <body>
 <main>
-<h1>iHeater Standalone</h1>
+<h1>iHeater-Remote</h1>
 <section class="panel status">
 <div class="metric"><span class="label">Mode</span><span class="value" id="mode">-</span></div>
 <div class="metric"><span class="label">Target</span><span class="value" id="target">-</span></div>
@@ -275,7 +275,7 @@ void configureRoutes() {
 void startAccessPoint() {
   uint64_t mac = ESP.getEfuseMac();
   char ssid[32];
-  snprintf(ssid, sizeof(ssid), "iHeater-Standalone-%04X",
+  snprintf(ssid, sizeof(ssid), "iHeater-Remote-%04X",
            static_cast<unsigned>((mac >> 32) & 0xFFFF));
   s_apSsid = ssid;
 
@@ -290,9 +290,9 @@ void startAccessPoint() {
   s_apMode = true;
   s_dnsServer.start(kDnsPort, "*", kApIp);
 
-  Serial.printf("[STANDALONE] AP SSID=%s IP=%s\n", ssid,
+  Serial.printf("[REMOTE] AP SSID=%s IP=%s\n", ssid,
                 WiFi.softAPIP().toString().c_str());
-  Serial.println("[STANDALONE] Captive portal DNS started");
+  Serial.println("[REMOTE] Captive portal DNS started");
 }
 
 void configureWiFi() {
@@ -302,7 +302,7 @@ void configureWiFi() {
 #if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("[STANDALONE] Connecting to WiFi SSID=%s\n", WIFI_SSID);
+  Serial.printf("[REMOTE] Connecting to WiFi SSID=%s\n", WIFI_SSID);
 
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED &&
@@ -312,12 +312,12 @@ void configureWiFi() {
 
   if (WiFi.status() == WL_CONNECTED) {
     s_apMode = false;
-    Serial.printf("[STANDALONE] WiFi connected IP=%s\n",
+    Serial.printf("[REMOTE] WiFi connected IP=%s\n",
                   WiFi.localIP().toString().c_str());
     return;
   }
 
-  Serial.println("[STANDALONE] WiFi connect timeout, starting AP");
+  Serial.println("[REMOTE] WiFi connect timeout, starting AP");
   WiFi.disconnect(true);
 #endif
 
@@ -396,7 +396,7 @@ void setup() {
   Serial.begin(115200);
   delay(100);
   Serial.println();
-  Serial.println("[STANDALONE] iHeater local firmware starting");
+  Serial.println("[REMOTE] iHeater-Remote firmware starting");
 
   if (ledEnabled()) {
     pinMode(IHEATER_STATUS_LED_PIN, OUTPUT);
@@ -410,7 +410,7 @@ void setup() {
   configureWiFi();
   configureRoutes();
   s_server.begin();
-  Serial.printf("[STANDALONE] Web UI: http://%s/\n",
+  Serial.printf("[REMOTE] Web UI: http://%s/\n",
                 localIpString().c_str());
 }
 
