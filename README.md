@@ -21,11 +21,12 @@ train.
 
 ## What It Does
 
-- Runs without iDryer cloud, portal MQTT, OTA, Bambu, Moonraker, or Home
+- Runs without iDryer cloud, portal MQTT, Bambu, Moonraker, or Home
   Assistant integrations.
 - Serves a local web UI for selecting the heater mode.
 - Creates a captive-portal access point if it cannot join configured
   Wi-Fi.
+- Supports local OTA updates from the web UI.
 - Reuses the ESP32-C3 Super Mini BOOT button for standalone-style mode
   selection.
 - Uses the ESP32-C3 Super Mini blue LED to indicate the selected mode by
@@ -80,6 +81,9 @@ git push origin v1.1.0
 
 Release assets include the app firmware image, a merged ESP32-C3 factory
 image, and a flash bundle with offsets for each binary part.
+
+Use the `*-firmware.bin` release asset for web OTA updates. The
+`*-factory.bin` image is for full serial flashing at offset `0x0`.
 
 ## Wi-Fi
 
@@ -143,6 +147,8 @@ Web UI:
   Until Off.
 - Selecting a mode starts the current timer from that moment. Changing
   the timer while heating restarts the countdown from that moment.
+- Upload a `*-firmware.bin` release asset to update over the air. The
+  device turns heating off before writing the update, then reboots.
 - The UI polls status and shows mode, target, timer, remaining time,
   network mode, and pulse code.
 

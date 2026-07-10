@@ -5,6 +5,7 @@
 #include <DNSServer.h>
 #include <IPAddress.h>
 #include <Preferences.h>
+#include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <string.h>
@@ -74,6 +75,10 @@ String s_wifiCredentialSource = "none";
 uint16_t s_timerMinutes = 0;
 uint32_t s_timerOffAtMs = 0;
 uint32_t s_restartAtMs = 0;
+bool s_otaActive = false;
+bool s_otaOk = false;
+size_t s_otaBytesWritten = 0;
+String s_otaError;
 
 bool s_buttonStableDown = false;
 bool s_buttonLastRawDown = false;
@@ -255,7 +260,7 @@ bool captiveRedirectIfNeeded() {
 void sendJsonStatus() {
   updateHeatTimer();
 
-  StaticJsonDocument<768> doc;
+  StaticJsonDocument<1024> doc;
   doc["mode"] = s_mode;
   doc["targetTempC"] = kModeTempsC[s_mode];
   doc["heating"] = s_mode != 0;
@@ -270,6 +275,10 @@ void sendJsonStatus() {
   doc["configuredWifiSsid"] = s_stationSsid;
   doc["wifiCredentialSource"] = s_wifiCredentialSource;
   doc["restartPending"] = s_restartAtMs != 0;
+  doc["otaActive"] = s_otaActive;
+  doc["otaOk"] = s_otaOk;
+  doc["otaBytesWritten"] = s_otaBytesWritten;
+  doc["otaError"] = s_otaError;
   doc["uptimeMs"] = millis();
 
   String out;
@@ -364,6 +373,77 @@ void handleWifiClearPost() {
   sendJsonStatus();
 }
 
+void handleOtaPost() {
+  if (Update.hasError() || !s_otaOk) {
+    StaticJsonDocument<192> doc;
+    doc["error"] = s_otaError.length() ? s_otaError : Update.errorString();
+    doc["bytesWritten"] = s_otaBytesWritten;
+
+    String out;
+    serializeJson(doc, out);
+    s_server.send(500, "application/json", out);
+    return;
+  }
+
+  scheduleRestart();
+
+  StaticJsonDocument<192> doc;
+  doc["ok"] = true;
+  doc["bytesWritten"] = s_otaBytesWritten;
+  doc["restartPending"] = true;
+
+  String out;
+  serializeJson(doc, out);
+  s_server.send(200, "application/json", out);
+}
+
+void handleOtaUpload() {
+  HTTPUpload &upload = s_server.upload();
+
+  if (upload.status == UPLOAD_FILE_START) {
+    s_otaActive = true;
+    s_otaOk = false;
+    s_otaBytesWritten = 0;
+    s_otaError = "";
+
+    applyMode(0, "ota:start");
+    Serial.printf("[REMOTE] OTA upload start filename=%s\n",
+                  upload.filename.c_str());
+
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+      s_otaError = Update.errorString();
+      Serial.printf("[REMOTE] OTA begin failed: %s\n", s_otaError.c_str());
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (!Update.hasError()) {
+      const size_t written = Update.write(upload.buf, upload.currentSize);
+      s_otaBytesWritten += written;
+      if (written != upload.currentSize) {
+        s_otaError = Update.errorString();
+        Serial.printf("[REMOTE] OTA write failed: %s\n", s_otaError.c_str());
+      }
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (!Update.hasError() && Update.end(true)) {
+      s_otaOk = true;
+      s_otaError = "";
+      Serial.printf("[REMOTE] OTA upload complete bytes=%u\n",
+                    (unsigned)s_otaBytesWritten);
+    } else {
+      s_otaOk = false;
+      s_otaError = Update.errorString();
+      Serial.printf("[REMOTE] OTA end failed: %s\n", s_otaError.c_str());
+    }
+    s_otaActive = false;
+  } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    Update.abort();
+    s_otaActive = false;
+    s_otaOk = false;
+    s_otaError = "upload aborted";
+    Serial.println("[REMOTE] OTA upload aborted");
+  }
+}
+
 void handleRoot() {
   if (captiveRedirectIfNeeded())
     return;
@@ -395,6 +475,7 @@ h1{font-size:clamp(28px,6vw,44px);line-height:1;margin:0 0 18px}
 .form label{display:grid;gap:6px;color:#9fb0aa;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
 .form label.wide{grid-column:span 2}
 input{min-height:46px;border:1px solid #3a4643;border-radius:6px;background:#101514;color:#f6fbf9;padding:0 12px;font:inherit;font-weight:700}
+input[type=file]{padding:10px 12px}
 button{appearance:none;border:1px solid #3a4643;border-radius:6px;background:#22302c;color:#f6fbf9;min-height:48px;font:inherit;font-weight:700;cursor:pointer}
 button:hover{background:#2b3b36}
 button.active{border-color:#8fd0bb;background:#1c4a3e}
@@ -441,6 +522,13 @@ button.secondary{background:#202826}
 </div>
 <p class="small" id="wifiMessage"></p>
 </section>
+<section class="panel">
+<div class="form">
+<label class="wide" for="otaFile">Firmware .bin<input id="otaFile" accept=".bin,application/octet-stream" type="file"></label>
+<button id="uploadOta">Update</button>
+</div>
+<p class="small" id="otaMessage"></p>
+</section>
 <p class="small" id="detail"></p>
 </main>
 <script>
@@ -451,6 +539,8 @@ const customMinutes=document.getElementById("customMinutes");
 const wifiSsid=document.getElementById("wifiSsid");
 const wifiPassword=document.getElementById("wifiPassword");
 const wifiMessage=document.getElementById("wifiMessage");
+const otaFile=document.getElementById("otaFile");
+const otaMessage=document.getElementById("otaMessage");
 temps.forEach((temp,mode)=>{
   const b=document.createElement("button");
   b.textContent=mode===0?"Off":`Mode ${mode} - ${temp} C`;
@@ -471,6 +561,7 @@ customMinutes.addEventListener("keydown",event=>{
 });
 document.getElementById("saveWifi").onclick=saveWifi;
 document.getElementById("clearWifi").onclick=clearWifi;
+document.getElementById("uploadOta").onclick=uploadOta;
 function setTimer(minutes){
   if(!Number.isFinite(minutes)) minutes=0;
   const value=Math.max(0,Math.min(1440,Math.round(minutes)));
@@ -505,6 +596,39 @@ async function clearWifi(){
     wifiMessage.textContent=err.message;
   }
 }
+function uploadOta(){
+  otaMessage.textContent="";
+  if(!otaFile.files.length){
+    otaMessage.textContent="Choose a firmware .bin first.";
+    return;
+  }
+
+  const file=otaFile.files[0];
+  const body=new FormData();
+  body.append("firmware",file,file.name);
+
+  const request=new XMLHttpRequest();
+  request.open("POST","/api/ota");
+  request.upload.onprogress=event=>{
+    if(event.lengthComputable){
+      otaMessage.textContent=`Uploading ${Math.round(event.loaded*100/event.total)}%`;
+    }else{
+      otaMessage.textContent=`Uploading ${event.loaded} bytes`;
+    }
+  };
+  request.onload=()=>{
+    let response={};
+    try{ response=JSON.parse(request.responseText||"{}"); }catch(_){}
+    if(request.status>=200&&request.status<300){
+      otaMessage.textContent=`Update written (${response.bytesWritten||file.size} bytes). Rebooting...`;
+      setTimeout(refresh,500);
+    }else{
+      otaMessage.textContent=response.error||"Update failed.";
+    }
+  };
+  request.onerror=()=>{ otaMessage.textContent="Update failed."; };
+  request.send(body);
+}
 function formatDuration(seconds){
   if(seconds<=0) return "-";
   const h=Math.floor(seconds/3600);
@@ -524,6 +648,8 @@ async function refresh(){
   document.getElementById("pulse").textContent=s.pulseCode;
   document.getElementById("wifiConfig").textContent=s.wifiCredentialSource.toUpperCase();
   document.getElementById("detail").textContent=`${s.ssid} - ${s.ip}`;
+  if(s.otaActive) otaMessage.textContent=`Updating (${s.otaBytesWritten} bytes written)`;
+  if(s.otaError) otaMessage.textContent=s.otaError;
   document.querySelectorAll("button[data-mode]").forEach(b=>b.classList.toggle("active",Number(b.dataset.mode)===s.mode));
   document.querySelectorAll("button[data-minutes]").forEach(b=>b.classList.toggle("active",Number(b.dataset.minutes)===s.timerMinutes));
   if(document.activeElement!==customMinutes) customMinutes.value=s.timerMinutes;
@@ -545,6 +671,7 @@ void configureRoutes() {
   s_server.on("/api/timer", HTTP_POST, handleTimerPost);
   s_server.on("/api/wifi", HTTP_POST, handleWifiPost);
   s_server.on("/api/wifi/clear", HTTP_POST, handleWifiClearPost);
+  s_server.on("/api/ota", HTTP_POST, handleOtaPost, handleOtaUpload);
   s_server.on("/api/off", HTTP_POST, []() {
     applyMode(0, "web");
     sendJsonStatus();
