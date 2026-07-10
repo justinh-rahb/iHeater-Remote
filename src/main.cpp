@@ -1,3 +1,13 @@
+#if defined(IHEATER_STANDALONE_LOCAL) || defined(IHEATER_REMOTE_LOCAL)
+
+#include "standalone/StandaloneApp.h"
+
+void setup() { iheaterlink::standalone::setup(); }
+
+void loop() { iheaterlink::standalone::loop(); }
+
+#else
+
 // iHeater Link — точка входа: RMT-выход → SDK begin() → MenuBridge →
 // onCommand-обработчики.
 
@@ -469,3 +479,5 @@ void loop() {
       .loop(); // WiFi/MQTT/LocalAccess + auto-telemetry/status + every() tasks
   error_process_all(); // шина ошибок → error_set_handler → raiseEvent
 }
+
+#endif
