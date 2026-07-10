@@ -68,25 +68,30 @@ pio run -e esp32c3-super-mini-remote -t upload --upload-port /dev/tty.usbmodem10
 
 Replace the upload port with the port for your board.
 
-## Wi-Fi
+## Releases
 
-For LAN mode, create `include/secrets.h`:
+Pushing a `v*` tag builds the public AP-fallback firmware and publishes a
+GitHub Release:
 
-```cpp
-#pragma once
-
-#define WIFI_SSID "Your 2.4 GHz SSID"
-#define WIFI_PASSWORD "Your password"
+```bash
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
-`include/secrets.h` is intentionally ignored by git.
+Release assets include the app firmware image, a merged ESP32-C3 factory
+image, and a flash bundle with offsets for each binary part.
 
-If the configured Wi-Fi is unavailable, iHeater Remote starts an open
-access point:
+## Wi-Fi
+
+Release firmware does not need Wi-Fi credentials at build time. If the
+device cannot join a configured network, it starts an access point:
 
 ```text
 iHeater Remote XXXX
 ```
+
+Open the web UI, enter the Wi-Fi SSID and password, and save. The device
+stores those credentials in ESP32 NVS, reboots, and then joins the LAN.
 
 The web UI is served at:
 
@@ -96,6 +101,18 @@ http://192.168.4.1/
 
 Captive portal DNS is enabled in AP mode, so most phones and laptops
 should offer to open the UI automatically.
+
+For local development, `include/secrets.h` is still supported as a
+fallback when no credentials have been saved in NVS:
+
+```cpp
+#pragma once
+
+#define WIFI_SSID "Your 2.4 GHz SSID"
+#define WIFI_PASSWORD "Your password"
+```
+
+`include/secrets.h` is intentionally ignored by git.
 
 ## Controls
 

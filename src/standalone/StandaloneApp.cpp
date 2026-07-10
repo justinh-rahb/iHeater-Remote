@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <DNSServer.h>
 #include <IPAddress.h>
+#include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <string.h>
@@ -37,6 +38,7 @@ namespace {
 
 constexpr uint8_t kMaxMode = 7;
 constexpr uint32_t kWifiConnectTimeoutMs = 15000;
+constexpr uint32_t kRestartDelayMs = 800;
 constexpr uint32_t kButtonDebounceMs = 30;
 constexpr uint32_t kMultiClickWindowMs = 650;
 constexpr uint32_t kLongPressMs = 2000;
@@ -45,6 +47,12 @@ constexpr uint32_t kLedOffMs = 120;
 constexpr uint32_t kLedPauseMs = 1600;
 constexpr uint16_t kDnsPort = 53;
 constexpr uint16_t kMaxTimerMinutes = 24 * 60;
+constexpr size_t kMaxWifiSsidLen = 32;
+constexpr size_t kMaxWifiPasswordLen = 64;
+
+const char *kPrefsNamespace = "iheater-remote";
+const char *kWifiSsidKey = "ssid";
+const char *kWifiPasswordKey = "pass";
 
 const IPAddress kApIp(192, 168, 4, 1);
 const IPAddress kApGateway(192, 168, 4, 1);
@@ -61,8 +69,11 @@ RmtOutputAdapter s_output{RmtOutputConfig{}};
 uint8_t s_mode = 0;
 bool s_apMode = false;
 String s_apSsid;
+String s_stationSsid;
+String s_wifiCredentialSource = "none";
 uint16_t s_timerMinutes = 0;
 uint32_t s_timerOffAtMs = 0;
+uint32_t s_restartAtMs = 0;
 
 bool s_buttonStableDown = false;
 bool s_buttonLastRawDown = false;
@@ -150,6 +161,74 @@ String localIpString() {
 
 const char *wifiModeString() { return s_apMode ? "ap" : "sta"; }
 
+bool loadStoredWifiCredentials(String &ssid, String &password) {
+  Preferences prefs;
+  if (!prefs.begin(kPrefsNamespace, true))
+    return false;
+
+  ssid = prefs.getString(kWifiSsidKey, "");
+  password = prefs.getString(kWifiPasswordKey, "");
+  prefs.end();
+
+  ssid.trim();
+  return ssid.length() > 0;
+}
+
+bool loadWifiCredentials(String &ssid, String &password, String &source) {
+  if (loadStoredWifiCredentials(ssid, password)) {
+    source = "stored";
+    return true;
+  }
+
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+  ssid = WIFI_SSID;
+  password = WIFI_PASSWORD;
+  ssid.trim();
+  if (ssid.length() > 0) {
+    source = "build";
+    return true;
+  }
+#endif
+
+  source = "none";
+  return false;
+}
+
+bool saveStoredWifiCredentials(const String &ssid, const String &password) {
+  Preferences prefs;
+  if (!prefs.begin(kPrefsNamespace, false))
+    return false;
+
+  const bool ok = prefs.putString(kWifiSsidKey, ssid) > 0 &&
+                  prefs.putString(kWifiPasswordKey, password) >= 0;
+  prefs.end();
+  return ok;
+}
+
+bool clearStoredWifiCredentials() {
+  Preferences prefs;
+  if (!prefs.begin(kPrefsNamespace, false))
+    return false;
+
+  prefs.remove(kWifiSsidKey);
+  prefs.remove(kWifiPasswordKey);
+  prefs.end();
+  return true;
+}
+
+void scheduleRestart() { s_restartAtMs = millis() + kRestartDelayMs; }
+
+void updateRestart() {
+  if (s_restartAtMs == 0)
+    return;
+
+  if ((int32_t)(millis() - s_restartAtMs) >= 0) {
+    Serial.println("[REMOTE] Restarting");
+    Serial.flush();
+    ESP.restart();
+  }
+}
+
 bool isIpLiteral(const String &host) {
   for (size_t i = 0; i < host.length(); ++i) {
     const char c = host[i];
@@ -188,6 +267,9 @@ void sendJsonStatus() {
   doc["wifiMode"] = wifiModeString();
   doc["ip"] = localIpString();
   doc["ssid"] = s_apMode ? s_apSsid : WiFi.SSID();
+  doc["configuredWifiSsid"] = s_stationSsid;
+  doc["wifiCredentialSource"] = s_wifiCredentialSource;
+  doc["restartPending"] = s_restartAtMs != 0;
   doc["uptimeMs"] = millis();
 
   String out;
@@ -234,6 +316,54 @@ void handleTimerPost() {
   sendJsonStatus();
 }
 
+void handleWifiPost() {
+  if (!s_server.hasArg("ssid")) {
+    s_server.send(400, "application/json", "{\"error\":\"missing ssid\"}");
+    return;
+  }
+
+  String ssid = s_server.arg("ssid");
+  String password = s_server.hasArg("password") ? s_server.arg("password") : "";
+  ssid.trim();
+
+  if (ssid.length() == 0 || ssid.length() > kMaxWifiSsidLen) {
+    s_server.send(400, "application/json",
+                  "{\"error\":\"ssid length must be 1..32\"}");
+    return;
+  }
+
+  if (password.length() > kMaxWifiPasswordLen ||
+      (password.length() > 0 && password.length() < 8)) {
+    s_server.send(400, "application/json",
+                  "{\"error\":\"password length must be 0 or 8..64\"}");
+    return;
+  }
+
+  if (!saveStoredWifiCredentials(ssid, password)) {
+    s_server.send(500, "application/json", "{\"error\":\"save failed\"}");
+    return;
+  }
+
+  s_stationSsid = ssid;
+  s_wifiCredentialSource = "stored";
+  scheduleRestart();
+  Serial.printf("[REMOTE] saved WiFi SSID=%s, restarting\n", ssid.c_str());
+  sendJsonStatus();
+}
+
+void handleWifiClearPost() {
+  if (!clearStoredWifiCredentials()) {
+    s_server.send(500, "application/json", "{\"error\":\"clear failed\"}");
+    return;
+  }
+
+  s_stationSsid = "";
+  s_wifiCredentialSource = "none";
+  scheduleRestart();
+  Serial.println("[REMOTE] cleared stored WiFi credentials, restarting");
+  sendJsonStatus();
+}
+
 void handleRoot() {
   if (captiveRedirectIfNeeded())
     return;
@@ -258,15 +388,20 @@ h1{font-size:clamp(28px,6vw,44px);line-height:1;margin:0 0 18px}
 .modes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .timer{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:center}
 .timer label{grid-column:span 2;color:#9fb0aa;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-.timer input{grid-column:span 2;min-height:46px;border:1px solid #3a4643;border-radius:6px;background:#101514;color:#f6fbf9;padding:0 12px;font:inherit;font-weight:700}
+.timer input{grid-column:span 2}
 .timer button{min-height:46px}
 .timer button.active{border-color:#8fd0bb;background:#1c4a3e}
+.form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}
+.form label{display:grid;gap:6px;color:#9fb0aa;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.form label.wide{grid-column:span 2}
+input{min-height:46px;border:1px solid #3a4643;border-radius:6px;background:#101514;color:#f6fbf9;padding:0 12px;font:inherit;font-weight:700}
 button{appearance:none;border:1px solid #3a4643;border-radius:6px;background:#22302c;color:#f6fbf9;min-height:48px;font:inherit;font-weight:700;cursor:pointer}
 button:hover{background:#2b3b36}
 button.active{border-color:#8fd0bb;background:#1c4a3e}
 button.stop{grid-column:span 4;background:#4b2424;border-color:#724141}
+button.secondary{background:#202826}
 .small{color:#9fb0aa;font-size:14px;line-height:1.45}
-@media (max-width:560px){.status,.modes{grid-template-columns:1fr 1fr}.timer{grid-template-columns:1fr 1fr}.timer label,.timer input{grid-column:span 2}button.stop{grid-column:span 2}}
+@media (max-width:560px){.status,.modes{grid-template-columns:1fr 1fr}.timer,.form{grid-template-columns:1fr 1fr}.timer label,.timer input,.form label.wide{grid-column:span 2}button.stop{grid-column:span 2}}
 </style>
 </head>
 <body>
@@ -279,6 +414,7 @@ button.stop{grid-column:span 4;background:#4b2424;border-color:#724141}
 <div class="metric"><span class="label">Remaining</span><span class="value" id="remaining">-</span></div>
 <div class="metric"><span class="label">Network</span><span class="value" id="network">-</span></div>
 <div class="metric"><span class="label">Pulse</span><span class="value" id="pulse">-</span></div>
+<div class="metric"><span class="label">Wi-Fi Config</span><span class="value" id="wifiConfig">-</span></div>
 </section>
 <section class="panel">
 <div class="modes" id="modes"></div>
@@ -296,6 +432,15 @@ button.stop{grid-column:span 4;background:#4b2424;border-color:#724141}
 <button id="applyTimer">Set</button>
 </div>
 </section>
+<section class="panel">
+<div class="form">
+<label class="wide" for="wifiSsid">Wi-Fi SSID<input id="wifiSsid" maxlength="32" autocomplete="username"></label>
+<label class="wide" for="wifiPassword">Wi-Fi Password<input id="wifiPassword" maxlength="64" type="password" autocomplete="current-password"></label>
+<button id="saveWifi">Save Wi-Fi</button>
+<button id="clearWifi" class="secondary">Forget Wi-Fi</button>
+</div>
+<p class="small" id="wifiMessage"></p>
+</section>
 <p class="small" id="detail"></p>
 </main>
 <script>
@@ -303,6 +448,9 @@ const temps=[0,55,60,65,70,75,80,85];
 const modes=document.getElementById("modes");
 const timers=document.getElementById("timers");
 const customMinutes=document.getElementById("customMinutes");
+const wifiSsid=document.getElementById("wifiSsid");
+const wifiPassword=document.getElementById("wifiPassword");
+const wifiMessage=document.getElementById("wifiMessage");
 temps.forEach((temp,mode)=>{
   const b=document.createElement("button");
   b.textContent=mode===0?"Off":`Mode ${mode} - ${temp} C`;
@@ -321,10 +469,41 @@ document.getElementById("applyTimer").onclick=()=>{
 customMinutes.addEventListener("keydown",event=>{
   if(event.key==="Enter") setTimer(Number(customMinutes.value||0));
 });
+document.getElementById("saveWifi").onclick=saveWifi;
+document.getElementById("clearWifi").onclick=clearWifi;
 function setTimer(minutes){
   if(!Number.isFinite(minutes)) minutes=0;
   const value=Math.max(0,Math.min(1440,Math.round(minutes)));
   return fetch(`/api/timer?minutes=${value}`,{method:"POST"}).then(refresh);
+}
+async function postForm(path,fields){
+  const body=new URLSearchParams(fields);
+  const r=await fetch(path,{method:"POST",body});
+  const s=await r.json().catch(()=>({error:"request failed"}));
+  if(!r.ok) throw new Error(s.error||"request failed");
+  return s;
+}
+async function saveWifi(){
+  wifiMessage.textContent="";
+  try{
+    await postForm("/api/wifi",{ssid:wifiSsid.value.trim(),password:wifiPassword.value});
+    wifiPassword.value="";
+    wifiMessage.textContent="Saved. Rebooting...";
+    await refresh();
+  }catch(err){
+    wifiMessage.textContent=err.message;
+  }
+}
+async function clearWifi(){
+  wifiMessage.textContent="";
+  try{
+    await postForm("/api/wifi/clear",{});
+    wifiPassword.value="";
+    wifiMessage.textContent="Forgotten. Rebooting...";
+    await refresh();
+  }catch(err){
+    wifiMessage.textContent=err.message;
+  }
 }
 function formatDuration(seconds){
   if(seconds<=0) return "-";
@@ -343,10 +522,12 @@ async function refresh(){
   document.getElementById("remaining").textContent=s.timerActive?formatDuration(s.timerRemainingSeconds):"-";
   document.getElementById("network").textContent=s.wifiMode.toUpperCase();
   document.getElementById("pulse").textContent=s.pulseCode;
+  document.getElementById("wifiConfig").textContent=s.wifiCredentialSource.toUpperCase();
   document.getElementById("detail").textContent=`${s.ssid} - ${s.ip}`;
   document.querySelectorAll("button[data-mode]").forEach(b=>b.classList.toggle("active",Number(b.dataset.mode)===s.mode));
   document.querySelectorAll("button[data-minutes]").forEach(b=>b.classList.toggle("active",Number(b.dataset.minutes)===s.timerMinutes));
   if(document.activeElement!==customMinutes) customMinutes.value=s.timerMinutes;
+  if(document.activeElement!==wifiSsid) wifiSsid.value=s.configuredWifiSsid||"";
 }
 refresh();
 setInterval(refresh,1000);
@@ -362,6 +543,8 @@ void configureRoutes() {
   s_server.on("/api/status", HTTP_GET, sendJsonStatus);
   s_server.on("/api/mode", HTTP_POST, handleModePost);
   s_server.on("/api/timer", HTTP_POST, handleTimerPost);
+  s_server.on("/api/wifi", HTTP_POST, handleWifiPost);
+  s_server.on("/api/wifi/clear", HTTP_POST, handleWifiClearPost);
   s_server.on("/api/off", HTTP_POST, []() {
     applyMode(0, "web");
     sendJsonStatus();
@@ -409,27 +592,37 @@ void configureWiFi() {
   WiFi.persistent(false);
   WiFi.setSleep(false);
 
-#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("[REMOTE] Connecting to WiFi SSID=%s\n", WIFI_SSID);
+  String wifiSsid;
+  String wifiPassword;
+  String credentialSource;
+  if (loadWifiCredentials(wifiSsid, wifiPassword, credentialSource)) {
+    s_stationSsid = wifiSsid;
+    s_wifiCredentialSource = credentialSource;
 
-  const uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED &&
-         (uint32_t)(millis() - start) < kWifiConnectTimeoutMs) {
-    delay(100);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+    Serial.printf("[REMOTE] Connecting to WiFi SSID=%s source=%s\n",
+                  wifiSsid.c_str(), credentialSource.c_str());
+
+    const uint32_t start = millis();
+    while (WiFi.status() != WL_CONNECTED &&
+           (uint32_t)(millis() - start) < kWifiConnectTimeoutMs) {
+      delay(100);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      s_apMode = false;
+      Serial.printf("[REMOTE] WiFi connected IP=%s\n",
+                    WiFi.localIP().toString().c_str());
+      return;
+    }
+
+    Serial.println("[REMOTE] WiFi connect timeout, starting AP");
+    WiFi.disconnect(true);
+  } else {
+    s_stationSsid = "";
+    s_wifiCredentialSource = "none";
   }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    s_apMode = false;
-    Serial.printf("[REMOTE] WiFi connected IP=%s\n",
-                  WiFi.localIP().toString().c_str());
-    return;
-  }
-
-  Serial.println("[REMOTE] WiFi connect timeout, starting AP");
-  WiFi.disconnect(true);
-#endif
 
   startAccessPoint();
 }
@@ -531,6 +724,7 @@ void loop() {
   updateButton();
   updateHeatTimer();
   updateLed();
+  updateRestart();
   delay(2);
 }
 
