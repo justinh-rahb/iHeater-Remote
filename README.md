@@ -1,6 +1,6 @@
-# iHeater-Remote
+# iHeater Remote
 
-iHeater-Remote is a local-only ESP32-C3 companion firmware for the
+iHeater Remote is a local-only ESP32-C3 companion firmware for the
 iHeater controller. It drives the iHeater pulse input over one GPIO,
 exposes a small local web UI, and recreates the standalone iHeater mode
 button behavior on an ESP32-C3 Super Mini.
@@ -16,7 +16,7 @@ This project is based on:
 - [pavluchenkor/iHeater-Link](https://github.com/pavluchenkor/iHeater-Link)
 
 The iHeater controller firmware and safety behavior remain the
-controller's responsibility. iHeater-Remote only sends the setpoint pulse
+controller's responsibility. iHeater Remote only sends the setpoint pulse
 train.
 
 ## What It Does
@@ -81,11 +81,11 @@ For LAN mode, create `include/secrets.h`:
 
 `include/secrets.h` is intentionally ignored by git.
 
-If the configured Wi-Fi is unavailable, iHeater-Remote starts an open
+If the configured Wi-Fi is unavailable, iHeater Remote starts an open
 access point:
 
 ```text
-iHeater-Remote-XXXX
+iHeater Remote XXXX
 ```
 
 The web UI is served at:
@@ -122,8 +122,12 @@ Web UI:
 
 - Open the device IP, or `http://192.168.4.1/` in AP mode.
 - Tap a mode button or Off.
-- The UI polls status and shows mode, target, network mode, and pulse
-  code.
+- Pick a timer preset, or enter a custom duration in minutes. `0` means
+  Until Off.
+- Selecting a mode starts the current timer from that moment. Changing
+  the timer while heating restarts the countdown from that moment.
+- The UI polls status and shows mode, target, timer, remaining time,
+  network mode, and pulse code.
 
 LED:
 
@@ -136,7 +140,7 @@ This fork keeps the upstream project shape mostly intact:
 
 - Original integration firmware remains in `src/main.cpp` behind the
   normal upstream build environments.
-- iHeater-Remote is selected by the `IHEATER_REMOTE_LOCAL` build flag.
+- iHeater Remote is selected by the `IHEATER_REMOTE_LOCAL` build flag.
 - The local-only implementation lives under `src/standalone/`.
 - The downstream PlatformIO environment is isolated as
   `esp32c3-super-mini-remote`.
