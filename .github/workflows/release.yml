@@ -21,6 +21,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -89,13 +92,52 @@ jobs:
 
           (cd "$dist_dir/package" && zip -9 "../${base}-flash-bundle.zip" ./*)
 
-          cat > "$dist_dir/release-notes.md" <<EOF
-          Automated firmware build for ${tag}.
+          previous_tag="$(git describe --tags --abbrev=0 "${tag}^{}^" 2>/dev/null || true)"
+          if [ -n "$previous_tag" ]; then
+            changes="$(git log --pretty=format:'- %s (%h)' "${previous_tag}..${tag}^{}")"
+          else
+            changes="- Initial public iHeater Remote release."
+          fi
+          if [ -z "$changes" ]; then
+            changes="- Firmware build for ${tag}."
+          fi
 
-          Assets:
-          - \`${base}-firmware.bin\`: app firmware image for flashing at offset \`0x10000\`.
-          - \`${base}-factory.bin\`: merged ESP32-C3 image containing bootloader, partitions, boot_app0, and firmware.
-          - \`${base}-flash-bundle.zip\`: individual flash parts plus an offset manifest.
+          cat > "$dist_dir/release-notes.md" <<EOF
+          ## What Changed
+
+          ${changes}
+
+          ## Install
+
+          ### First Install Or Full Serial Flash
+
+          Flash \`${base}-factory.bin\` at offset \`0x0\`. This merged image contains the bootloader, partition table, boot_app0, and firmware.
+
+          Example with esptool:
+
+          \`\`\`bash
+          esptool.py --chip esp32c3 --port /dev/tty.usbmodemXXXX write_flash 0x0 ${base}-factory.bin
+          \`\`\`
+
+          ### Web OTA Update
+
+          If iHeater Remote is already running, open its web UI and upload \`${base}-firmware.bin\` in the firmware update section. Do not upload the factory image for OTA.
+
+          The device turns heating off before writing the update and reboots when the update is complete.
+
+          ### Manual Multi-Part Flash
+
+          Use \`${base}-flash-bundle.zip\` if you want the individual binary parts and offset manifest instead of the merged factory image.
+
+          ## Assets
+
+          - \`${base}-firmware.bin\`: app firmware image for web OTA, or manual flashing at offset \`0x10000\`.
+          - \`${base}-factory.bin\`: merged ESP32-C3 image for full serial flashing at offset \`0x0\`.
+          - \`${base}-flash-bundle.zip\`: individual flash parts plus \`manifest.json\` offsets.
+
+          ## After Flashing
+
+          If Wi-Fi is not configured, the device starts an \`iHeater Remote XXXX\` access point and serves the UI at \`http://192.168.4.1/\`. Wi-Fi credentials can be saved from the web UI.
           EOF
 
       - name: Publish GitHub Release
