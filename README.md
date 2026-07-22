@@ -179,6 +179,8 @@ git merge upstream/main
 Expect most downstream conflicts to be limited to `README.md`,
 `platformio.ini`, `src/main.cpp`, and `src/standalone/`.
 
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/wildtang3nt)
+
 ## Notes
 
 - Do not use `erase_flash` if you want to preserve NVS data from another
