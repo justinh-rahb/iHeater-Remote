@@ -15,6 +15,7 @@
 #endif
 
 #include "controller/RmtOutputAdapter.h"
+#include "wifi_tx_power.h"
 
 namespace iheaterlink {
 namespace standalone {
@@ -707,6 +708,7 @@ void startAccessPoint() {
   } else {
     WiFi.softAP(ssid);
   }
+  applyConfiguredWifiTxPower("remote-ap");
   s_apMode = true;
   s_dnsServer.start(kDnsPort, "*", kApIp);
 
@@ -728,6 +730,7 @@ void configureWiFi() {
 
     WiFi.mode(WIFI_STA);
     WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+    applyConfiguredWifiTxPower("remote-sta");
     Serial.printf("[REMOTE] Connecting to WiFi SSID=%s source=%s\n",
                   wifiSsid.c_str(), credentialSource.c_str());
 

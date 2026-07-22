@@ -24,6 +24,7 @@ void loop() { iheaterlink::standalone::loop(); }
 #include "controller/RmtOutputAdapter.h"
 #include "heater/MenuBridge.h"
 #include "heater/auto_heat.h"
+#include "wifi_tx_power.h"
 
 #include "version.h"       // VERSION_STR для Config.firmwareVersion
 #include <ota_receiver.h>  // idryer::OtaReceiver для Phase 6 OTA
@@ -216,6 +217,17 @@ static void applyLogFlags() {
 void setup() {
   // WiFi.persistent(false) ПЕРВОЙ строкой — Arduino не пишет WiFi-config в NVS.
   WiFi.persistent(false);
+#if defined(IHEATER_WIFI_TX_POWER)
+  WiFi.onEvent(
+      [](WiFiEvent_t event) {
+        if (event == ARDUINO_EVENT_WIFI_STA_START) {
+          iheaterlink::applyConfiguredWifiTxPower("sta-start");
+        } else if (event == ARDUINO_EVENT_WIFI_AP_START) {
+          iheaterlink::applyConfiguredWifiTxPower("ap-start");
+        }
+      },
+      ARDUINO_EVENT_MAX);
+#endif
 
   // SDK + Improv РАНО — handleSerial должен быть готов перехватить байты от
   // portal ДО того как остальной setup съест CPU. Тонкий setup = стабильный
