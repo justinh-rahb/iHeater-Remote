@@ -148,6 +148,8 @@ Web UI:
 - Open the device IP, or `http://192.168.4.1/` in AP mode.
 - The touch-first dashboard has Home, Heat, Timer, and Settings views, with
   compact cards and a navigation rail inspired by DragonBreath's local SPA.
+- Live dashboard state is pushed over a local WebSocket at
+  `ws://<device-ip>:81/`; the dashboard does not poll a status HTTP endpoint.
 - **Setup** follows DragonBreath RC3’s local-source model: choose Manual,
   Bambu LAN, or Moonraker; only one source is active. Non-secret fields are
   prefilled, while a blank access code/API key preserves the stored secret.

@@ -9,6 +9,7 @@
 #include <Preferences.h>
 #include <Update.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <string.h>
 
@@ -75,6 +76,7 @@ const float kModeTempsC[] = {
 
 DNSServer s_dnsServer;
 WebServer s_server(80);
+WebSocketsServer s_statusSocket(81);
 RmtOutputAdapter s_output{RmtOutputConfig{}};
 idryer::cloud::LinkIntegrationsStore s_integrationStore;
 // The integration manager treats this as an optional publisher. Passing null
@@ -394,12 +396,12 @@ void handleSetupPage() {
 void handleFirmwarePage() {
   if (captiveRedirectIfNeeded())
     return;
-  String page = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>iDryer firmware update</title><style>:root{color-scheme:dark;--bg:#090d14;--p:#101722;--l:#29384b;--t:#eaf1fa;--m:#91a2b8;--a:#5ba9ff;--bad:#ff8893;font-family:system-ui,sans-serif}body{margin:0;background:var(--bg);color:var(--t)}main{max-width:560px;margin:auto;padding:36px 15px}.logo{font-size:24px;font-weight:800;letter-spacing:-1px}.logo i{font-style:normal;color:var(--a)}.card{background:var(--p);border:1px solid var(--l);border-radius:12px;padding:18px;margin:16px 0}h1{font-size:22px;margin:14px 0 7px}.note{color:var(--m);font-size:13px;line-height:1.5}input,button{box-sizing:border-box;width:100%;min-height:45px;border-radius:8px;border:1px solid #38506b;background:#0c131d;color:var(--t);font:inherit;padding:8px;margin:8px 0}button{background:#1d5d99;border-color:#69b4ff;font-weight:700;cursor:pointer}.warning{color:var(--bad)}a{color:var(--a)}</style><main><p><a href="/">← Dashboard</a></p><div class=logo><i>i</i>Dryer</div><h1>Firmware update</h1><p class=note>Installed: iHeater Remote v__VERSION__</p><section class=card><p class="note warning"><strong>Heating is stopped before the update is written.</strong> Do not disconnect power while the upload is in progress.</p><input id=file accept=".bin,application/octet-stream" type=file><button id=install>Install update</button><p class=note id=msg></p></section></main><script>const f=document.getElementById('file'),m=document.getElementById('msg');document.getElementById('install').onclick=()=>{let file=f.files[0];if(!file){m.textContent='Choose a firmware .bin first.';return}let x=new XMLHttpRequest(),d=new FormData();d.append('firmware',file,file.name);x.open('POST','/api/ota');x.upload.onprogress=e=>m.textContent=e.lengthComputable?'Uploading '+Math.round(e.loaded/e.total*100)+'%':'Uploading…';x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(_){}if(x.status>=200&&x.status<300){m.textContent='Update written. Rebooting…';setTimeout(waitForDevice,1500)}else m.textContent=r.error||'Update failed.'};x.onerror=()=>m.textContent='Update failed.';x.send(d)};function waitForDevice(){let end=Date.now()+120000,t=setInterval(async()=>{try{let r=await fetch('/api/status',{cache:'no-store'});if(r.ok){clearInterval(t);location.href='/'}}catch(_){}if(Date.now()>end){clearInterval(t);m.textContent='The device is restarting. Reopen the dashboard when it is back online.'}},1000)}</script></main>)HTML";
+  String page = R"HTML(<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>iDryer firmware update</title><style>:root{color-scheme:dark;--bg:#090d14;--p:#101722;--l:#29384b;--t:#eaf1fa;--m:#91a2b8;--a:#5ba9ff;--bad:#ff8893;font-family:system-ui,sans-serif}body{margin:0;background:var(--bg);color:var(--t)}main{max-width:560px;margin:auto;padding:36px 15px}.logo{font-size:24px;font-weight:800;letter-spacing:-1px}.logo i{font-style:normal;color:var(--a)}.card{background:var(--p);border:1px solid var(--l);border-radius:12px;padding:18px;margin:16px 0}h1{font-size:22px;margin:14px 0 7px}.note{color:var(--m);font-size:13px;line-height:1.5}input,button{box-sizing:border-box;width:100%;min-height:45px;border-radius:8px;border:1px solid #38506b;background:#0c131d;color:var(--t);font:inherit;padding:8px;margin:8px 0}button{background:#1d5d99;border-color:#69b4ff;font-weight:700;cursor:pointer}.warning{color:var(--bad)}a{color:var(--a)}</style><main><p><a href="/">← Dashboard</a></p><div class=logo><i>i</i>Dryer</div><h1>Firmware update</h1><p class=note>Installed: iHeater Remote v__VERSION__</p><section class=card><p class="note warning"><strong>Heating is stopped before the update is written.</strong> Do not disconnect power while the upload is in progress.</p><input id=file accept=".bin,application/octet-stream" type=file><button id=install>Install update</button><p class=note id=msg></p></section></main><script>const f=document.getElementById('file'),m=document.getElementById('msg');document.getElementById('install').onclick=()=>{let file=f.files[0];if(!file){m.textContent='Choose a firmware .bin first.';return}let x=new XMLHttpRequest(),d=new FormData();d.append('firmware',file,file.name);x.open('POST','/api/ota');x.upload.onprogress=e=>m.textContent=e.lengthComputable?'Uploading '+Math.round(e.loaded/e.total*100)+'%':'Uploading…';x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(_){}if(x.status>=200&&x.status<300){m.textContent='Update written. Rebooting…';setTimeout(waitForDevice,1500)}else m.textContent=r.error||'Update failed.'};x.onerror=()=>m.textContent='Update failed.';x.send(d)};function waitForDevice(){let end=Date.now()+120000,t=setInterval(async()=>{try{let r=await fetch('/',{cache:'no-store'});if(r.ok){clearInterval(t);location.href='/'}}catch(_){}if(Date.now()>end){clearInterval(t);m.textContent='The device is restarting. Reopen the dashboard when it is back online.'}},1000)}</script></main>)HTML";
   page.replace("__VERSION__", VERSION_STR);
   s_server.send(200, "text/html", page);
 }
 
-void sendJsonStatus() {
+String statusJson() {
   updateHeatTimer();
 
   StaticJsonDocument<1024> doc;
@@ -422,7 +424,6 @@ void sendJsonStatus() {
   doc["otaOk"] = s_otaOk;
   doc["otaBytesWritten"] = s_otaBytesWritten;
   doc["otaError"] = s_otaError;
-  doc["uptimeMs"] = millis();
   doc["firmwareVersion"] = VERSION_STR;
   doc["integration"] = idryer::cloud::activeIntegrationToString(
       s_integrations.getActive());
@@ -436,7 +437,33 @@ void sendJsonStatus() {
 
   String out;
   serializeJson(doc, out);
-  s_server.send(200, "application/json", out);
+  return out;
+}
+
+void sendActionStatus() {
+  s_server.send(200, "application/json", statusJson());
+}
+
+void pushStatusIfChanged(bool force = false) {
+  static String lastStatus;
+  static uint32_t lastCheckMs = 0;
+  const uint32_t now = millis();
+  if (!force && now - lastCheckMs < 250)
+    return;
+  lastCheckMs = now;
+
+  String status = statusJson();
+  if (force || status != lastStatus) {
+    s_statusSocket.broadcastTXT(status);
+    lastStatus = status;
+  }
+}
+
+void onStatusSocketEvent(uint8_t client, WStype_t type, uint8_t *, size_t) {
+  if (type == WStype_CONNECTED) {
+    String status = statusJson();
+    s_statusSocket.sendTXT(client, status);
+  }
 }
 
 void handleModePost() {
@@ -451,7 +478,7 @@ void handleModePost() {
   }
 
   applyMode(static_cast<uint8_t>(requested), "web");
-  sendJsonStatus();
+  sendActionStatus();
 }
 
 void handleTimerPost() {
@@ -475,7 +502,7 @@ void handleTimerPost() {
   }
 
   Serial.printf("[REMOTE] web timer=%umin\n", s_timerMinutes);
-  sendJsonStatus();
+  sendActionStatus();
 }
 
 bool applySetupForm(String &error) {
@@ -540,7 +567,7 @@ void handleIntegrationPost() {
     s_server.send(400, "application/json", String("{\"error\":\"") + error + "\"}");
     return;
   }
-  sendJsonStatus();
+  sendActionStatus();
 }
 
 void handleSetupPost() {
@@ -612,7 +639,7 @@ void handleWifiPost() {
   s_wifiCredentialSource = "stored";
   scheduleRestart();
   Serial.printf("[REMOTE] saved WiFi SSID=%s, restarting\n", ssid.c_str());
-  sendJsonStatus();
+  sendActionStatus();
 }
 
 void handleWifiClearPost() {
@@ -625,7 +652,7 @@ void handleWifiClearPost() {
   s_wifiCredentialSource = "none";
   scheduleRestart();
   Serial.println("[REMOTE] cleared stored WiFi credentials, restarting");
-  sendJsonStatus();
+  sendActionStatus();
 }
 
 void handleOtaPost() {
@@ -966,7 +993,6 @@ void configureRoutes() {
   s_server.on("/", HTTP_GET, handleRoot);
   s_server.on("/setup", HTTP_GET, handleSetupPage);
   s_server.on("/fw", HTTP_GET, handleFirmwarePage);
-  s_server.on("/api/status", HTTP_GET, sendJsonStatus);
   s_server.on("/api/mode", HTTP_POST, handleModePost);
   s_server.on("/api/timer", HTTP_POST, handleTimerPost);
   s_server.on("/api/integration", HTTP_POST, handleIntegrationPost);
@@ -976,7 +1002,7 @@ void configureRoutes() {
   s_server.on("/api/ota", HTTP_POST, handleOtaPost, handleOtaUpload);
   s_server.on("/api/off", HTTP_POST, []() {
     applyMode(0, "web");
-    sendJsonStatus();
+    sendActionStatus();
   });
   s_server.on("/generate_204", HTTP_GET, handleRoot);
   s_server.on("/gen_204", HTTP_GET, handleRoot);
@@ -1155,6 +1181,8 @@ void setup() {
   s_integrations.begin();
   configureRoutes();
   s_server.begin();
+  s_statusSocket.begin();
+  s_statusSocket.onEvent(onStatusSocketEvent);
   Serial.printf("[REMOTE] Web UI: http://%s/\n",
                 localIpString().c_str());
 }
@@ -1163,11 +1191,13 @@ void loop() {
   if (s_apMode)
     s_dnsServer.processNextRequest();
   s_server.handleClient();
+  s_statusSocket.loop();
   updateButton();
   updateHeatTimer();
   updateLed();
   updateRestart();
   s_integrations.loop();
+  pushStatusIfChanged();
   delay(2);
 }
 
